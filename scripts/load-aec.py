@@ -46,13 +46,17 @@ def norm_name(raw: str) -> str:
 
 
 def num(raw: str):
+    """Money as written. An integral amount stays integral — writing 55000.0 into a NUMERIC
+    column makes the driver hand the graph a scale-1 decimal, and the value then reads as
+    `55000.0` everywhere downstream for no reason."""
     s = (raw or "").strip().replace(",", "").replace("$", "")
     if not s:
         return None
     try:
-        return float(s)
+        d = float(s)
     except ValueError:
         return None
+    return int(d) if d.is_integer() else d
 
 
 def iso_date(raw: str):

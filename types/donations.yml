@@ -142,3 +142,38 @@
       recordKeyField: entity_id
       producer: returnsByEntityId
       description: "The entity's lodged returns across years: `(e)-[:LODGED_RETURN]->(r:DisclosureReturn)`."
+
+- name: Counterparty
+  visibility: internal
+  description: >-
+    The other side of a money line — a donation's recipient or donor, or a receipt's payer —
+    resolved from the register's own entity table. A DISTINCT type from DonationEntity on
+    purpose: it is a different ROLE in the query (the entity you asked about vs the entity on
+    the other end), and keeping the labels separate also keeps each hop's fetch its own.
+  properties:
+    id:
+      metadata: { identity: "true" }
+    name: "Disclosure name, whitespace-normalized by the loader."
+    abn: "Australian Business Number, where a return supplied it."
+    acn: "Australian Company Number, where a return supplied it."
+  virtualJoins:
+    - anchorLabel: Donation
+      relationship: DONATED_TO
+      keyField: recipient_id
+      recordKeyField: id
+      producer: entitiesById
+      description: >-
+        Who a donation went to — the hop that turns an id into a name:
+        `MATCH (d:Donation)-[:DONATED_TO]->(r:Counterparty) RETURN r.name, sum(d.value)`.
+    - anchorLabel: Donation
+      relationship: DONATED_BY
+      keyField: donor_id
+      recordKeyField: id
+      producer: entitiesById
+      description: "Who made a donation: `MATCH (d:Donation)-[:DONATED_BY]->(donor:Counterparty)`."
+    - anchorLabel: Receipt
+      relationship: RECEIVED_FROM
+      keyField: payer_id
+      recordKeyField: id
+      producer: entitiesById
+      description: "Who a receipt's money came from: `MATCH (r:Receipt)-[:RECEIVED_FROM]->(payer:Counterparty)`."

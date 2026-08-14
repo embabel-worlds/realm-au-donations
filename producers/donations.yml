@@ -18,6 +18,21 @@
         properties: [id, name, abn, acn]
   cache: { kind: ttl, seconds: 86400 }
 
+# Resolves a money line's counterparty id back to its entity — what turns "recipientId 50"
+# into a name a person can read. Keyed on the entities PK, so it serves every FK direction.
+- name: entitiesById
+  kind: sql
+  datasource: au_donations
+  table: entities
+  keyColumn: id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      entities:
+        properties: [id, name, abn, acn]
+  cache: { kind: ttl, seconds: 86400 }
+
 - name: returnsByEntityId
   kind: sql
   datasource: au_donations
