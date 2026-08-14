@@ -5,7 +5,10 @@
 #   2. The read path sets the JDBC session read-only hint (enforced by PostgreSQL).
 #   3. demo_reader is a SELECT-only database role (sql/schema.sql) — the credential itself
 #      cannot write, whatever asks.
+# stringtype=unspecified: anchor keys arrive as strings; this lets PostgreSQL infer the
+# column's type server-side (exactly as it does for a quoted literal in psql), so joins
+# keyed on integer FK columns work without casts that would defeat the indexes.
 - name: au_donations
-  jdbcUrl: "jdbc:postgresql://localhost:5455/au_donations"
+  jdbcUrl: "jdbc:postgresql://localhost:5455/au_donations?stringtype=unspecified"
   username: demo_reader
   passwordEnv: AU_DONATIONS_PASSWORD   # the local demo value is 'read-only-demo'

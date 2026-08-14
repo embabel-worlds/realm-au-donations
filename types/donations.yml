@@ -1,117 +1,144 @@
-- name: "Debt"
-  visibility: "internal"
-  description: "Row of debts (mined from the relational schema; identity = id)."
+# The donations join surface — MINED by the platform's schema miner, then curated.
+# The curation diff over the mined commit is deliberately the whole human contribution:
+# names, directions, descriptions, and the query anchor. The shape is the miner's.
+
+- name: DonationQuery
+  visibility: internal
+  description: >-
+    A disclosure name pinned against the register — the anchor behind "what has X disclosed".
+    Names are as lodged with the AEC (whitespace-normalized): party branches are distinct
+    disclosers, and the same organisation may appear under spelling variants across years.
+  properties:
+    name:
+      metadata: { identity: "true" }
+
+- name: DonationEntity
+  visibility: internal
+  description: >-
+    An entity appearing anywhere in the AEC Transparency Register's annual returns
+    (1998–99 onward): parties, donors, associated entities, third-party campaigners, and
+    every counterparty named in a receipt, donation or debt line. `abn`/`acn` are present
+    only where a return supplied them — the join keys to the ABR, Wikidata and beyond.
+    The register reports what was DISCLOSED; a disclosure is a sourced fact, never a finding.
   properties:
     id:
-      metadata:
-        identity: "true"
-    debtor_id: "int4, not null column of debts."
-    creditor_id: "int4, not null column of debts."
-    financial_year: "text, not null column of debts."
-    amount: "numeric column of debts."
-    institution_type: "text column of debts."
+      metadata: { identity: "true" }
+    name: "Disclosure name, whitespace-normalized by the loader."
+    abn: "Australian Business Number, where a return supplied it."
+    acn: "Australian Company Number, where a return supplied it."
   virtualJoins:
-  - anchorLabel: "Entity"
-    relationship: "HAS_DEBTS"
-    keyField: "id"
-    recordKeyField: "creditor_id"
-    producer: "debtsByCreditorId"
-    description: "Rows of debts for a Entity, keyed by creditor_id (mined from the\
-      \ FK to entities.id)."
-  - anchorLabel: "Entity"
-    relationship: "HAS_DEBTS"
-    keyField: "id"
-    recordKeyField: "debtor_id"
-    producer: "debtsByDebtorId"
-    description: "Rows of debts for a Entity, keyed by debtor_id (mined from the FK\
-      \ to entities.id)."
-- name: "DonationsMade"
-  visibility: "internal"
-  description: "Row of donations_made (mined from the relational schema; identity\
-    \ = id)."
+    - anchorLabel: DonationQuery
+      relationship: HAS_ENTITY
+      keyField: name
+      recordKeyField: name
+      producer: entitiesByName
+      description: >-
+        Resolve a pinned name to its register entity:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e:DonationEntity)`.
+        Exact normalized-name match — search variants as separate anchors.
+
+- name: Donation
+  visibility: internal
+  description: >-
+    One donation line from Donations Made returns: donor → recipient, date, value.
+    Values are as disclosed, in AUD.
   properties:
     id:
-      metadata:
-        identity: "true"
-    donor_id: "int4, not null column of donations_made."
-    recipient_id: "int4, not null column of donations_made."
-    financial_year: "text, not null column of donations_made."
-    made_on: "date column of donations_made."
-    value: "numeric column of donations_made."
+      metadata: { identity: "true" }
+    donor_id: "FK to the donor DonationEntity."
+    recipient_id: "FK to the recipient DonationEntity."
+    financial_year: "Financial year of the return (as published, e.g. 2024-25)."
+    made_on: "Date of the donation, where disclosed."
+    value: "Amount in AUD, as disclosed."
   virtualJoins:
-  - anchorLabel: "Entity"
-    relationship: "HAS_DONATIONS_MADE"
-    keyField: "id"
-    recordKeyField: "donor_id"
-    producer: "donationsMadeByDonorId"
-    description: "Rows of donations_made for a Entity, keyed by donor_id (mined from\
-      \ the FK to entities.id)."
-  - anchorLabel: "Entity"
-    relationship: "HAS_DONATIONS_MADE"
-    keyField: "id"
-    recordKeyField: "recipient_id"
-    producer: "donationsMadeByRecipientId"
-    description: "Rows of donations_made for a Entity, keyed by recipient_id (mined\
-      \ from the FK to entities.id)."
-- name: "Entity"
-  visibility: "internal"
-  description: "Row of entities (mined from the relational schema; identity = id)."
+    - anchorLabel: DonationEntity
+      relationship: MADE_DONATION
+      keyField: id
+      recordKeyField: donor_id
+      producer: donationsMadeByDonorId
+      description: "Donations this entity DISCLOSED MAKING: `(e)-[:MADE_DONATION]->(d:Donation)`."
+    - anchorLabel: DonationEntity
+      relationship: RECEIVED_DONATION
+      keyField: id
+      recordKeyField: recipient_id
+      producer: donationsMadeByRecipientId
+      description: "Donations disclosed BY OTHERS as made to this entity: `(e)-[:RECEIVED_DONATION]->(d:Donation)`."
+
+- name: Receipt
+  visibility: internal
+  description: >-
+    One receipt line from a discloser's return (Detailed Receipts plus the donor/third-party
+    donations-received files): who received money, from whom, typed as Donation Received /
+    Subscription / Other Receipt.
   properties:
     id:
-      metadata:
-        identity: "true"
-    name: "text, not null column of entities."
-    abn: "text column of entities."
-    acn: "text column of entities."
-- name: "Receipt"
-  visibility: "internal"
-  description: "Row of receipts (mined from the relational schema; identity = id)."
-  properties:
-    id:
-      metadata:
-        identity: "true"
-    recipient_id: "int4, not null column of receipts."
-    payer_id: "int4, not null column of receipts."
-    financial_year: "text, not null column of receipts."
-    return_type: "text column of receipts."
-    receipt_type: "text column of receipts."
-    value: "numeric column of receipts."
+      metadata: { identity: "true" }
+    recipient_id: "FK to the receiving DonationEntity (the discloser)."
+    payer_id: "FK to the paying DonationEntity."
+    financial_year: "Financial year of the return."
+    return_type: "Which return type disclosed it."
+    receipt_type: "Donation Received / Subscription / Other Receipt, as disclosed."
+    value: "Amount in AUD, as disclosed."
   virtualJoins:
-  - anchorLabel: "Entity"
-    relationship: "HAS_RECEIPTS"
-    keyField: "id"
-    recordKeyField: "payer_id"
-    producer: "receiptsByPayerId"
-    description: "Rows of receipts for a Entity, keyed by payer_id (mined from the\
-      \ FK to entities.id)."
-  - anchorLabel: "Entity"
-    relationship: "HAS_RECEIPTS"
-    keyField: "id"
-    recordKeyField: "recipient_id"
-    producer: "receiptsByRecipientId"
-    description: "Rows of receipts for a Entity, keyed by recipient_id (mined from\
-      \ the FK to entities.id)."
-- name: "Return"
-  visibility: "internal"
-  description: "Row of returns (mined from the relational schema; identity = id)."
+    - anchorLabel: DonationEntity
+      relationship: RECEIVED_MONEY
+      keyField: id
+      recordKeyField: recipient_id
+      producer: receiptsByRecipientId
+      description: "Money this entity DISCLOSED RECEIVING, line by line: `(e)-[:RECEIVED_MONEY]->(r:Receipt)`."
+    - anchorLabel: DonationEntity
+      relationship: PAID_MONEY
+      keyField: id
+      recordKeyField: payer_id
+      producer: receiptsByPayerId
+      description: "Receipts naming this entity as the SOURCE of the money: `(e)-[:PAID_MONEY]->(r:Receipt)`."
+
+- name: Debt
+  visibility: internal
+  description: "One debt line from a discloser's return: who owes whom, and whether the creditor is a financial institution."
   properties:
     id:
-      metadata:
-        identity: "true"
-    entity_id: "int4, not null column of returns."
-    financial_year: "text, not null column of returns."
-    return_type: "text, not null column of returns."
-    total_receipts: "numeric column of returns."
-    total_payments: "numeric column of returns."
-    total_debts: "numeric column of returns."
-    total_donations_made: "numeric column of returns."
-    total_donations_received: "numeric column of returns."
-    electoral_expenditure: "numeric column of returns."
+      metadata: { identity: "true" }
+    debtor_id: "FK to the owing DonationEntity (the discloser)."
+    creditor_id: "FK to the creditor DonationEntity."
+    financial_year: "Financial year of the return."
+    amount: "Amount owed in AUD, as disclosed."
+    institution_type: "Financial or Non-financial institution, as disclosed."
   virtualJoins:
-  - anchorLabel: "Entity"
-    relationship: "HAS_RETURNS"
-    keyField: "id"
-    recordKeyField: "entity_id"
-    producer: "returnsByEntityId"
-    description: "Rows of returns for a Entity, keyed by entity_id (mined from the\
-      \ FK to entities.id)."
+    - anchorLabel: DonationEntity
+      relationship: OWES
+      keyField: id
+      recordKeyField: debtor_id
+      producer: debtsByDebtorId
+      description: "Debts this entity disclosed OWING: `(e)-[:OWES]->(d:Debt)`."
+    - anchorLabel: DonationEntity
+      relationship: IS_OWED
+      keyField: id
+      recordKeyField: creditor_id
+      producer: debtsByCreditorId
+      description: "Debt lines naming this entity as the CREDITOR: `(e)-[:IS_OWED]->(d:Debt)`."
+
+- name: DisclosureReturn
+  visibility: internal
+  description: >-
+    One lodged summary return (party / donor / associated entity / third party / MP) with
+    its disclosed totals — the per-year financial envelope around the line-level detail.
+  properties:
+    id:
+      metadata: { identity: "true" }
+    entity_id: "FK to the lodging DonationEntity."
+    financial_year: "Financial year of the return."
+    return_type: "Party / Donor / Associated Entity / Third Party / MP return."
+    total_receipts: "Total receipts disclosed, AUD."
+    total_payments: "Total payments (or total expenditure) disclosed, AUD."
+    total_debts: "Total debts disclosed, AUD."
+    total_donations_made: "Total donations made (donor returns), AUD."
+    total_donations_received: "Total donations/gifts received, AUD."
+    electoral_expenditure: "Electoral expenditure, where the return type discloses it, AUD."
+  virtualJoins:
+    - anchorLabel: DonationEntity
+      relationship: LODGED_RETURN
+      keyField: id
+      recordKeyField: entity_id
+      producer: returnsByEntityId
+      description: "The entity's lodged returns across years: `(e)-[:LODGED_RETURN]->(r:DisclosureReturn)`."

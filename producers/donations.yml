@@ -1,118 +1,111 @@
-- name: "debtsByCreditorId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "debts"
-  keyColumn: "creditor_id"
+# Governed sql producers over the realm's provisioned store — MINED, then curated.
+# All GENERATED SELECTs (no authored SQL anywhere): governance compiles into the statement.
+# mode stays OPEN with the full column lists pre-written under expose:, so governing a
+# deployment is pruning lines and flipping one keyword. The register changes once a year
+# (first business day of February), so a day of cache is conservative.
+
+# The query anchor's resolver — a name pinned on a DonationQuery becomes its entity row.
+- name: entitiesByName
+  kind: sql
+  datasource: au_donations
+  table: entities
+  keyColumn: name
+  dialect: postgresql
   governance:
-    mode: "open"
+    mode: open
     expose:
-      debts:
-        properties:
-        - "id"
-        - "debtor_id"
-        - "creditor_id"
-        - "financial_year"
-        - "amount"
-        - "institution_type"
-- name: "debtsByDebtorId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "debts"
-  keyColumn: "debtor_id"
+      entities:
+        properties: [id, name, abn, acn]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: returnsByEntityId
+  kind: sql
+  datasource: au_donations
+  table: returns
+  keyColumn: entity_id
+  dialect: postgresql
   governance:
-    mode: "open"
-    expose:
-      debts:
-        properties:
-        - "id"
-        - "debtor_id"
-        - "creditor_id"
-        - "financial_year"
-        - "amount"
-        - "institution_type"
-- name: "donationsMadeByDonorId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "donations_made"
-  keyColumn: "donor_id"
-  governance:
-    mode: "open"
-    expose:
-      donations_made:
-        properties:
-        - "id"
-        - "donor_id"
-        - "recipient_id"
-        - "financial_year"
-        - "made_on"
-        - "value"
-- name: "donationsMadeByRecipientId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "donations_made"
-  keyColumn: "recipient_id"
-  governance:
-    mode: "open"
-    expose:
-      donations_made:
-        properties:
-        - "id"
-        - "donor_id"
-        - "recipient_id"
-        - "financial_year"
-        - "made_on"
-        - "value"
-- name: "receiptsByPayerId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "receipts"
-  keyColumn: "payer_id"
-  governance:
-    mode: "open"
-    expose:
-      receipts:
-        properties:
-        - "id"
-        - "recipient_id"
-        - "payer_id"
-        - "financial_year"
-        - "return_type"
-        - "receipt_type"
-        - "value"
-- name: "receiptsByRecipientId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "receipts"
-  keyColumn: "recipient_id"
-  governance:
-    mode: "open"
-    expose:
-      receipts:
-        properties:
-        - "id"
-        - "recipient_id"
-        - "payer_id"
-        - "financial_year"
-        - "return_type"
-        - "receipt_type"
-        - "value"
-- name: "returnsByEntityId"
-  kind: "sql"
-  datasource: "au_donations"
-  table: "returns"
-  keyColumn: "entity_id"
-  governance:
-    mode: "open"
+    mode: open
     expose:
       returns:
-        properties:
-        - "id"
-        - "entity_id"
-        - "financial_year"
-        - "return_type"
-        - "total_receipts"
-        - "total_payments"
-        - "total_debts"
-        - "total_donations_made"
-        - "total_donations_received"
-        - "electoral_expenditure"
+        properties: [id, entity_id, financial_year, return_type, total_receipts, total_payments,
+                     total_debts, total_donations_made, total_donations_received, electoral_expenditure]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: receiptsByRecipientId
+  kind: sql
+  datasource: au_donations
+  table: receipts
+  keyColumn: recipient_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      receipts:
+        properties: [id, recipient_id, payer_id, financial_year, return_type, receipt_type, value]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: receiptsByPayerId
+  kind: sql
+  datasource: au_donations
+  table: receipts
+  keyColumn: payer_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      receipts:
+        properties: [id, recipient_id, payer_id, financial_year, return_type, receipt_type, value]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: donationsMadeByDonorId
+  kind: sql
+  datasource: au_donations
+  table: donations_made
+  keyColumn: donor_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      donations_made:
+        properties: [id, donor_id, recipient_id, financial_year, made_on, value]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: donationsMadeByRecipientId
+  kind: sql
+  datasource: au_donations
+  table: donations_made
+  keyColumn: recipient_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      donations_made:
+        properties: [id, donor_id, recipient_id, financial_year, made_on, value]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: debtsByDebtorId
+  kind: sql
+  datasource: au_donations
+  table: debts
+  keyColumn: debtor_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      debts:
+        properties: [id, debtor_id, creditor_id, financial_year, amount, institution_type]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: debtsByCreditorId
+  kind: sql
+  datasource: au_donations
+  table: debts
+  keyColumn: creditor_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      debts:
+        properties: [id, debtor_id, creditor_id, financial_year, amount, institution_type]
+  cache: { kind: ttl, seconds: 86400 }
