@@ -1,0 +1,11 @@
+# The datasource this realm assumes; docker-compose.yml + scripts/load-aec.py provision it.
+#
+# READ-ONLY THREE WAYS, deliberately:
+#   1. No `readOnly: false` here — the platform refuses every write path at the resolver.
+#   2. The read path sets the JDBC session read-only hint (enforced by PostgreSQL).
+#   3. demo_reader is a SELECT-only database role (sql/schema.sql) — the credential itself
+#      cannot write, whatever asks.
+- name: au_donations
+  jdbcUrl: "jdbc:postgresql://localhost:5455/au_donations"
+  username: demo_reader
+  passwordEnv: AU_DONATIONS_PASSWORD   # the local demo value is 'read-only-demo'

@@ -1,0 +1,26 @@
+name: au-donations
+description: >-
+  Australian political donations realm — the AEC Transparency Register's annual disclosure
+  returns (1998–99 to today) as a governed, graph-queryable relational store. Anchor an entity
+  (`MATCH (e:DonorEntity {name:'…'})-[:MADE_DONATION]->(d:Donation)`) and traverse who gave,
+  who received, receipts, and debts — then chain outward: the ABN column joins the Australian
+  Business Register and Wikidata; the entity name joins live AusTender contracts and the
+  federal lobbyist register (realm-gov-au); ownership and press arrive via Diffbot. This realm
+  is a PROVISIONED-STORE realm: the AEC publishes bulk files with no query API, so the realm
+  ships the recipe for its own backing database — docker-compose + schema + loader — and
+  declares the datasource it expects. The datasource is READ-ONLY three ways: no
+  `readOnly: false` in the declaration (the platform refuses writes), the JDBC session hint,
+  and a SELECT-only database role. The register reports what entities disclosed; a disclosure
+  is a sourced fact, never a finding.
+version: "0.1.0"
+author: "Rod Johnson"
+url: https://github.com/johnsonr/realm-au-donations
+icon: icon.svg
+tags:
+  - australia
+  - politics
+  - donations
+  - transparency
+  - open-data
+  - sql
+  - provisioned-store

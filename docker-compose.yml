@@ -1,0 +1,24 @@
+# The realm's backing store — deliberately self-contained, on a non-default port so it can
+# never collide with a local Postgres or any other project's compose stack.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: au-donations-pg
+    ports:
+      - "5455:5432"
+    environment:
+      POSTGRES_DB: au_donations
+      POSTGRES_USER: admin
+      # Local demo container only. The DATASOURCE never uses this superuser — it connects as
+      # the SELECT-only demo_reader role that sql/schema.sql creates.
+      POSTGRES_PASSWORD: local-demo-only
+    volumes:
+      - au_donations_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d au_donations"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  au_donations_data:

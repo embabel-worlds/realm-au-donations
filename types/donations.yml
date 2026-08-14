@@ -1,0 +1,117 @@
+- name: "Debt"
+  visibility: "internal"
+  description: "Row of debts (mined from the relational schema; identity = id)."
+  properties:
+    id:
+      metadata:
+        identity: "true"
+    debtor_id: "int4, not null column of debts."
+    creditor_id: "int4, not null column of debts."
+    financial_year: "text, not null column of debts."
+    amount: "numeric column of debts."
+    institution_type: "text column of debts."
+  virtualJoins:
+  - anchorLabel: "Entity"
+    relationship: "HAS_DEBTS"
+    keyField: "id"
+    recordKeyField: "creditor_id"
+    producer: "debtsByCreditorId"
+    description: "Rows of debts for a Entity, keyed by creditor_id (mined from the\
+      \ FK to entities.id)."
+  - anchorLabel: "Entity"
+    relationship: "HAS_DEBTS"
+    keyField: "id"
+    recordKeyField: "debtor_id"
+    producer: "debtsByDebtorId"
+    description: "Rows of debts for a Entity, keyed by debtor_id (mined from the FK\
+      \ to entities.id)."
+- name: "DonationsMade"
+  visibility: "internal"
+  description: "Row of donations_made (mined from the relational schema; identity\
+    \ = id)."
+  properties:
+    id:
+      metadata:
+        identity: "true"
+    donor_id: "int4, not null column of donations_made."
+    recipient_id: "int4, not null column of donations_made."
+    financial_year: "text, not null column of donations_made."
+    made_on: "date column of donations_made."
+    value: "numeric column of donations_made."
+  virtualJoins:
+  - anchorLabel: "Entity"
+    relationship: "HAS_DONATIONS_MADE"
+    keyField: "id"
+    recordKeyField: "donor_id"
+    producer: "donationsMadeByDonorId"
+    description: "Rows of donations_made for a Entity, keyed by donor_id (mined from\
+      \ the FK to entities.id)."
+  - anchorLabel: "Entity"
+    relationship: "HAS_DONATIONS_MADE"
+    keyField: "id"
+    recordKeyField: "recipient_id"
+    producer: "donationsMadeByRecipientId"
+    description: "Rows of donations_made for a Entity, keyed by recipient_id (mined\
+      \ from the FK to entities.id)."
+- name: "Entity"
+  visibility: "internal"
+  description: "Row of entities (mined from the relational schema; identity = id)."
+  properties:
+    id:
+      metadata:
+        identity: "true"
+    name: "text, not null column of entities."
+    abn: "text column of entities."
+    acn: "text column of entities."
+- name: "Receipt"
+  visibility: "internal"
+  description: "Row of receipts (mined from the relational schema; identity = id)."
+  properties:
+    id:
+      metadata:
+        identity: "true"
+    recipient_id: "int4, not null column of receipts."
+    payer_id: "int4, not null column of receipts."
+    financial_year: "text, not null column of receipts."
+    return_type: "text column of receipts."
+    receipt_type: "text column of receipts."
+    value: "numeric column of receipts."
+  virtualJoins:
+  - anchorLabel: "Entity"
+    relationship: "HAS_RECEIPTS"
+    keyField: "id"
+    recordKeyField: "payer_id"
+    producer: "receiptsByPayerId"
+    description: "Rows of receipts for a Entity, keyed by payer_id (mined from the\
+      \ FK to entities.id)."
+  - anchorLabel: "Entity"
+    relationship: "HAS_RECEIPTS"
+    keyField: "id"
+    recordKeyField: "recipient_id"
+    producer: "receiptsByRecipientId"
+    description: "Rows of receipts for a Entity, keyed by recipient_id (mined from\
+      \ the FK to entities.id)."
+- name: "Return"
+  visibility: "internal"
+  description: "Row of returns (mined from the relational schema; identity = id)."
+  properties:
+    id:
+      metadata:
+        identity: "true"
+    entity_id: "int4, not null column of returns."
+    financial_year: "text, not null column of returns."
+    return_type: "text, not null column of returns."
+    total_receipts: "numeric column of returns."
+    total_payments: "numeric column of returns."
+    total_debts: "numeric column of returns."
+    total_donations_made: "numeric column of returns."
+    total_donations_received: "numeric column of returns."
+    electoral_expenditure: "numeric column of returns."
+  virtualJoins:
+  - anchorLabel: "Entity"
+    relationship: "HAS_RETURNS"
+    keyField: "id"
+    recordKeyField: "entity_id"
+    producer: "returnsByEntityId"
+    description: "Rows of returns for a Entity, keyed by entity_id (mined from the\
+      \ FK to entities.id)."
