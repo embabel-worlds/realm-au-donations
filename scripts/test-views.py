@@ -318,6 +318,7 @@ FUNCTION_WORDS = {
     "much", "more", "most", "less", "least", "one", "two", "three", "four", "five", "six", "seven",
     "eight", "nine", "ten", "eleven", "twelve", "first", "second", "third", "last", "next",
     "it", "its", "they", "them", "their", "which", "who", "whom", "whose", "what", "there", "here",
+    "he", "him", "his", "she", "her", "hers", "himself", "herself", "itself", "themselves",
     "of", "in", "on", "at", "to", "from", "by", "for", "with", "without", "within", "into", "onto",
     "over", "under", "across", "through", "between", "among", "amongst", "along", "against",
     "about", "around", "during", "before", "after", "since", "until", "while", "than", "as",
@@ -342,6 +343,8 @@ DOMAIN_WORDS = {
     "classified", "listed", "registered", "registration", "incorporated", "documented",
     "documents", "document", "titled", "paying", "pays", "pay", "paid",
     "citing", "cites", "cited", "explains", "explaining", "specify", "specifies",
+    # the register's own word for a disclosed donation, and the verb a citation uses
+    "gift", "gifts", "indicates", "indicated", "shows", "showing",
     "specifically", "issued", "issues", "beyond", "under", "per",
     "multiple", "different", "differ", "differs", "range", "ranges", "ranging", "vary", "varies",
     "varying", "spanning", "spread", "split", "distributed", "single", "largest", "previous",

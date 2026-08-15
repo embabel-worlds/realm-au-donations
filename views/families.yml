@@ -540,7 +540,7 @@
            // carries the sentence that identifies the donor, which is all this needs.
            text: left(replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', ''), 700)
          } END)[0..3] AS srcs
-    WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, srcs,
+    WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, b.total AS total, srcs,
          b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
          b.financial_year + ', in ' + toString(b.gifts) + ' gifts' +
          CASE WHEN b.branches > 1
@@ -551,14 +551,27 @@
            ELSE reduce(acc = '', s IN srcs |
              acc + ' SOURCE, ' + s.kind + ' — ' + s.title + ' <' + s.url + '>: ' + s.text)
          END AS line
-    RETURN render(line,
-      'Report each donor largest first: the register facts, then at most two sentences on who that donor is according to its SOURCE lines, naming the source and what kind it is. Prefer what identifies the donor — who owns or benefits from it — over anything else a source discusses. Never assert a connection yourself; a source says it, in its own words. Do not write that anything is associated with, linked to, related to or behind anything else unless a source says exactly that. Where there is no source, say so in a clause.'
-    ) AS dossier,
-           // The prose and its receipts in ONE call. Citations fetched by a second query can be
-           // dropped when the prose is quoted, and then every subjective statement in it is
-           // unsupported by construction. Here they cannot come apart.
-           collect({donor: donorAsLodged, searchedAs: searchedAs, sources: srcs}) AS attributions,
+    // ONE ROW PER DONOR, AND ONE COMPOSITION PER DONOR. Neo4j groups an aggregation by the other
+    // returned keys, so returning the donor beside `render(...)` finalises the reduction once per
+    // donor rather than once per report.
+    //
+    // That is not a performance choice, it is a correctness one. Composing eight donors in a single
+    // pass drifts: four consecutive runs each introduced a word no source used — "wholly" for
+    // "100%", "violations" for "infringement notice", and once "ties" between a donor and the
+    // party, which is the unsupported relation this realm exists to refuse. Five donors passed
+    // first time. The variable is how much a model must hold at once, so this holds one donor.
+    //
+    // Coverage also stops being something to check: N donors in, N rows out, and a missing donor is
+    // a missing ROW that any caller can count — not a silently shorter paragraph.
+    RETURN donorAsLodged AS donor,
+           searchedAs    AS searchedAs,
+           total         AS disclosedTotal,
+           render(line,
+             'Report this donor: the register facts, then at most two sentences on who it is according to its SOURCE lines, naming the source and what kind it is. Prefer what identifies the donor — who owns or benefits from it — over anything else a source discusses. Never assert a connection yourself; a source says it, in its own words. Do not write that anything is associated with, linked to, related to or behind anything else unless a source says exactly that. Where there is no source, say so in a clause.'
+           ) AS prose,
+           head(collect(srcs)) AS sources,
       'These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Statements about who a donor is are quoted from the named source, not asserted by this realm — a filing and a news report are different kinds of evidence, and both may be dated. The register asserts only the name on the return.' AS caveats
+    ORDER BY disclosedTotal DESC, donor
 
 - name: PartyFundingSources
   description: >-
