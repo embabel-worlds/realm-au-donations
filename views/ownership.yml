@@ -1,0 +1,94 @@
+# CROSS-REALM VIEWS — need realm-diffbot installed (see types/ownership.yml for why and what it costs).
+#
+# These are the questions the register cannot answer alone. The AEC knows a donor as a NAME on a
+# return; it does not know who owns that company, who runs it, or how big it is. One hop across an
+# open web knowledge graph supplies that, and the join is a scored NAME match, so every view here
+# returns the matched-from name beside the answer — a reader who cannot see WHAT was matched cannot
+# judge whether the answer is about the company they meant.
+#
+# Each resolved donor costs one knowledge-graph entity export, so every view here is LIMITed by
+# construction and resolves owners only for the rows it will actually show.
+
+- name: PartyBackers
+  description: >-
+    Who is really behind a party's biggest disclosed donations: the largest donors from the DONORS'
+    own returns, each resolved to the company it appears to be, with its corporate group (immediate
+    parent and ultimate owner), who runs it, and its size. The question the register alone cannot
+    answer — it knows the name on the return and nothing about the group behind it.
+
+    Two honesty rules apply to every row. The donation figures are DISCLOSURES, exact as lodged.
+    The company identification is a scored NAME MATCH from an open knowledge graph — read
+    `resolvedFrom` (the disclosure name) against `company` (what it matched) and treat a mismatch
+    as a wrong match, not a finding. `sourceCount` says how thin the evidence behind a match is.
+
+    A donor the knowledge graph cannot identify STILL APPEARS, with its disclosed figures and empty
+    company columns. That is deliberate: the disclosure is a fact and the failure to identify the
+    donor is itself informative — private companies and individuals frequently have no public
+    corporate record, and dropping those rows would quietly present the identifiable subset as if
+    it were the whole picture.
+  outputLabel: PartyBackerRow
+  params:
+    partyName:
+      type: string
+      description: "Exact party name as lodged with the AEC, e.g. 'Australian Labor Party (ALP)'."
+    sinceFy:
+      type: string
+      default: "2023-24"
+      description: "Earliest financial year to include, as the register writes it (e.g. '2024-25')."
+    limit:
+      type: int
+      default: 10
+      description: "How many donors to resolve. EACH ONE COSTS a knowledge-graph entity export — keep it small."
+  cypher: |
+    MATCH (q:DonationQuery {name: $partyName})-[:HAS_ENTITY]->(party:DonationEntity)
+    MATCH (party)-[:RECEIVED_DONATION]->(d:Donation)
+    WHERE d.financial_year >= $sinceFy
+    MATCH (d)-[:DONATED_BY]->(donor:Counterparty)
+    WITH donor, sum(d.value) AS disclosedTotal, count(d) AS donations
+    ORDER BY disclosedTotal DESC LIMIT $limit
+    OPTIONAL MATCH (donor)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    RETURN donor.name            AS donorAsDisclosed,
+           disclosedTotal,
+           donations,
+           o.ownerMatchedFor     AS resolvedFrom,
+           o.name                AS company,
+           o.parentCompanyName   AS parent,
+           o.ultimateParentName  AS ultimateOwner,
+           o.ceoName             AS runBy,
+           o.nbEmployees         AS employees,
+           o.country             AS country,
+           o.nbOrigins           AS sourceCount
+    ORDER BY disclosedTotal DESC
+
+- name: DonorOwnership
+  description: >-
+    One donor, followed upward: what it disclosed giving, and the corporate group it appears to
+    belong to — immediate parent, ultimate owner, acquirer if it was acquired, and who runs it.
+    Use it after DonorProfile when the question turns from "what did they give" to "who are they".
+    The company identification is a scored name match; `resolvedFrom` is the audit of that match.
+    When the knowledge graph has no confident match the company columns come back empty and the
+    disclosure figures still stand — common for private Australian companies, and not a failure of
+    the register.
+  outputLabel: DonorOwnershipRow
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC, e.g. 'MINERALOGY PTY LTD'."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    OPTIONAL MATCH (e)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    OPTIONAL MATCH (e)-[:MADE_DONATION]->(d:Donation)
+    RETURN e.name               AS entityAsDisclosed,
+           count(d)             AS donationsDisclosed,
+           sum(d.value)         AS totalDisclosed,
+           o.ownerMatchedFor    AS resolvedFrom,
+           o.name               AS company,
+           o.parentCompanyName  AS parent,
+           o.ultimateParentName AS ultimateOwner,
+           o.acquiredByName     AS acquiredBy,
+           o.ceoName            AS runBy,
+           o.industries         AS industries,
+           o.nbEmployees        AS employees,
+           o.revenue            AS revenue,
+           o.homepageUri        AS website,
+           o.nbOrigins          AS sourceCount

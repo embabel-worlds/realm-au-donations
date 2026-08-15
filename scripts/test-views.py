@@ -39,7 +39,8 @@ USER = os.environ.get("EMBABEL_USER", "rod")
 PASS = os.environ.get("EMBABEL_PASS", "test")
 AUTH = base64.b64encode(f"{USER}:{PASS}".encode()).decode()
 BASE = f"http://localhost:{PORT}/api/v1/admin/kg"
-VIEWS = pathlib.Path(__file__).resolve().parent.parent / "views" / "donations.yml"
+VIEW_FILES = ["donations.yml", "ownership.yml"]
+VIEWS_DIR = pathlib.Path(__file__).resolve().parent.parent / "views"
 
 # (view, args) — declared defaults fill the rest, exactly as a bare call would.
 CASES = [
@@ -49,6 +50,10 @@ CASES = [
     ("DonationsReceived", {"entityName": "Australian Labor Party (ALP)", "sinceFy": "2024-25", "limit": 5}),
     ("MoneyIn", {"entityName": "Climate 200 Pty Limited", "sinceFy": "2024-25", "limit": 5}),
     ("YearSummary", {"entityName": "MINERALOGY PTY LTD", "limit": 5}),
+    # CROSS-REALM (needs realm-diffbot + DIFFBOT_TOKEN). Limits are deliberately tiny: every
+    # resolved donor is a knowledge-graph entity export, and the free tier is ~400 a MONTH.
+    ("DonorOwnership", {"entityName": "Fox Group Holdings Pty Ltd"}),
+    ("PartyBackers", {"partyName": "Australian Labor Party (ALP)", "sinceFy": "2023-24", "limit": 3}),
 ]
 
 
@@ -66,7 +71,7 @@ def post(path, body):
 
 
 def main():
-    declared = {v["name"] for v in yaml.safe_load(VIEWS.read_text())}
+    declared = {v["name"] for f in VIEW_FILES for v in yaml.safe_load((VIEWS_DIR / f).read_text())}
     covered = {name for name, _ in CASES}
     missing = declared - covered
     if missing:

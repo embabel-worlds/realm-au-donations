@@ -1,0 +1,73 @@
+# CROSS-REALM: this file needs realm-diffbot installed alongside this realm.
+#
+# It declares no Diffbot types — those belong to realm-diffbot — but it does name Diffbot's
+# PRODUCERS (`orgEnhanceByName`, `orgsById`), which resolve globally once that realm is present.
+# Without it these joins fail at fetch time with "Unknown producer"; the rest of this realm is
+# unaffected, which is why the dependency lives in its own file.
+#
+# WHAT THIS BUYS: the register knows a donor only as a name on a return. Diffbot knows who owns
+# that company, who runs it, and how big it is. One hop across turns "MINERALOGY PTY LTD gave
+# $53m" into "…and here is the group it belongs to, and the person who runs it".
+#
+# COST IS REAL, AND PER ANCHOR. `orgEnhanceByName` is a Diffbot ENTITY EXPORT (~25 credits) for
+# EVERY donor resolved — the free tier is ~400 exports a MONTH. maxAnchors is set low here on
+# purpose: a view over "the top 10 donors" is 10 exports, and that is the shape these views take.
+# Do not remove the LIMIT from a view that feeds this join.
+#
+# A NAME MATCH IS NOT AN IDENTITY. Diffbot's name resolution scores a best guess (its threshold
+# is 0.45 — deliberately permissive, because company names are weak signals). `ownerMatchedFor`
+# carries the name we asked with so a reader can see WHAT was matched, and `ownerImportance` /
+# `ownerSources` say how thin the evidence is. Present these as "the register's donor appears to
+# be this company", never as a fact the register itself asserts.
+
+- name: DonorOwner
+  visibility: internal
+  description: >-
+    Who a register donor appears to BE as a company: its corporate group (immediate parent and
+    ultimate owner), who runs it, its size, and where it is based — resolved from an open web
+    knowledge graph by NAME, and therefore a lead to check rather than an identity the AEC
+    asserts. `ownerMatchedFor` is the disclosure name we resolved from; when it does not look
+    like the company you expected, the match is wrong and everything else on the row is about a
+    different company.
+  properties:
+    diffbotId:
+      metadata: { identity: "true" }
+    ownerMatchedFor: "The disclosure name this record was resolved FROM — the audit of the match."
+    name: "Company name as the knowledge graph canonicalizes it."
+    parentCompanyName: "Immediate parent, if any — the first step of the ownership chain."
+    ultimateParentName: "Topmost owner of the group, if any — the answer to 'who ultimately owns this donor'."
+    acquiredByName: "Acquirer, when the company is believed to have been acquired."
+    ceoName: "Who runs it, without a further hop."
+    nbEmployees: "Estimated headcount — an estimate from public signals, not a filing."
+    revenue: "Estimated annual revenue in revenueCurrency; an inference for private companies."
+    revenueCurrency: "Currency of the revenue estimate."
+    industries: "Industry labels."
+    country: "Country of the primary location."
+    homepageUri: "Primary website — a far stronger identifier than the name that matched."
+    isPublic: "Publicly listed."
+    isAcquired: "Believed to have been acquired; read with acquiredByName."
+    importance: "Prominence score — ranks matches against each other, means nothing absolute."
+    nbOrigins: "How many web sources the record was fused from. LOW MEANS THIN EVIDENCE."
+  virtualJoins:
+    # From a donation's counterparty (the donor named on someone else's return) …
+    - anchorLabel: Counterparty
+      relationship: RESOLVES_TO_COMPANY
+      keyField: name
+      recordKeyField: matchedFor
+      producer: orgEnhanceByName
+      # One Diffbot entity export per anchor — keep the driving set small and LIMITed.
+      maxAnchors: 25
+      description: >-
+        The company a donation counterparty appears to be, with its owner and CEO:
+        `MATCH (d:Donation)-[:DONATED_BY]->(c:Counterparty)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)`.
+        A scored NAME match — check `ownerMatchedFor` before trusting the row.
+    # … and from an entity you looked up directly.
+    - anchorLabel: DonationEntity
+      relationship: RESOLVES_TO_COMPANY
+      keyField: name
+      recordKeyField: matchedFor
+      producer: orgEnhanceByName
+      maxAnchors: 25
+      description: >-
+        The company a register entity appears to be:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)`.
