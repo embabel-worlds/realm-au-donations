@@ -441,3 +441,172 @@
       'Write these donors as a short brief for a reader, in the order given — the rollup as the register discloses it, largest first. Every name is a name as LODGED: copy it exactly, abbreviations and all, and never expand or tidy one.'
     ) AS briefing,
       'These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Every corporate identification is a match to check — the register asserts only the name on the return.' AS caveats
+
+- name: PartyFundingDossier
+  description: >-
+    Who funds a political family AND WHO THOSE FUNDERS ARE, joined to what published sources say
+    about them — each such statement attributed to the source that makes it, with its URL.
+
+    THIS IS THE VIEW THE REGISTER CANNOT BE READ WITHOUT. A lodged name is a legal string, and for
+    the vehicles that give the most money it is designed to tell a reader nothing: a private company
+    with no trading history, a trust, a surname reversed. PartyFundingReport is honest about that
+    and says `none`, which is correct and useless — the whole reason the money is worth following is
+    that the answer exists elsewhere. A substantial-holder notice names a trust's beneficiaries; a
+    company's own ASX disclosure describes a holder; an ABN registry gives an entity type; a
+    newspaper investigation names the family behind a shell. Refusing to look is not neutrality.
+
+    WHAT IT NEVER DOES IS ASSERT THE LINK ITSELF. Every statement about who a donor IS is reported
+    as "<source> says X", never as this realm's finding, and the URL travels with it so a reader
+    checks rather than trusts. That division is the same one docs/CORPORATE_GROUPS.md draws: naming
+    a corporate group is a claim needing a filing per row, and quoting a filing that names one is
+    not that claim — it is a lead, sourced.
+
+    READ THE SOURCE BEFORE THE SENTENCE. A regulatory filing and a news investigation are not the
+    same evidence, and this view deliberately does not rank them for you: both appear, each named.
+    An ASX Form 603 stating a trust's beneficiaries is a legal disclosure; a masthead's reporting is
+    journalism that may be right, contested, or dated. The register asserts only the name on the
+    return.
+
+    A DONOR WITH NO COVERAGE STILL APPEARS, with its disclosed figures and nothing said about it —
+    dropping it would understate the family's funding, which is the failure the whole realm exists
+    to prevent.
+
+    COST: one web search per donor plus up to three page reads, cached six hours. Keep `limit`
+    small; this is a dossier over the largest backers, never a scan.
+  outputLabel: PartyFundingDossierRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia', 'Australian Labor Party'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include, as the register writes it."
+    limit:
+      type: int
+      default: 5
+      description: "How many donors to research. EACH COSTS a search and up to three page reads."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    // A PERSON is lodged surname-first ('Wall, Pamela') — a string no article, filing or profile
+    // carries — so a search under the lodged form finds nothing and the largest donor in a report
+    // comes back blank. Inverted for the SEARCH only; every printed name stays as lodged.
+    WITH b,
+         CASE WHEN b.donor_name CONTAINS ', ' AND NOT b.donor_name =~ '(?i).*(pty|ltd|limited|council|union|association|group|holdings|trust|inc).*'
+           THEN trim(split(b.donor_name, ',')[1]) + ' ' + trim(split(b.donor_name, ',')[0])
+           ELSE b.donor_name
+         END AS searchName
+    OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})-[:HAS_READ_RESULT]->(h:DonorTrailHit)
+    // Directories, aggregators and social pages restate an address and a like-count. They identify
+    // nobody, and every one of them displaces a source that does.
+    WHERE h.url IS NULL OR NOT h.url =~ '(?i).*(linkedin|facebook|twitter|instagram|dnb|creditorwatch|companiesdb|opengovau|australialei|bloomberg|aus61business|ib\.com\.au|rightsindevelopment|claytonutz|donation\.watch).*'
+    // ONE ROW PER DONOR, ITS FIRST THREE SOURCES, each labelled with WHAT KIND it is. A row per
+    // SOURCE let one well-covered donor consume the whole brief while three others went unmentioned:
+    // coverage cannot be requested in a prompt when the input itself is lopsided. Grouped here,
+    // every donor is exactly one item, so a brief that drops one is visibly short.
+    //
+    // The kind is folded into the collected map rather than projected in its own WITH, and nothing
+    // orders on a fetched property — after a paid per-anchor hop both defeat the planner, and the
+    // failure surfaces as an unrelated "unknown function" rather than as a refusal.
+    WITH b, searchName,
+         collect(CASE WHEN h.url IS NULL THEN null ELSE {
+           kind: CASE
+             WHEN h.url =~ '(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*' THEN 'a disclosure lodged under law'
+             WHEN h.url =~ '(?i).*\\.gov\\.au.*'                     THEN 'a government register'
+             WHEN h.url =~ '(?i).*wikipedia\\.org.*'                 THEN 'an encyclopaedia entry'
+             ELSE 'reporting by a named publication'
+           END,
+           title: h.title,
+           url: h.url,
+           // BOUNDED QUOTE. The producer reads a 3,000-character window per page; three of those
+           // per donor is more than one composition call can hold, and the fold then summarises
+           // its own partials — which silently drops whole donors from the brief. 400 characters
+           // carries the sentence that identifies the donor, which is all this needs.
+           text: left(replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', ''), 700)
+         } END)[0..3] AS srcs
+    // NOT RANKED BY EVIDENCE GRADE, and not for want of trying. A filing lodged under law should
+    // reach the reader before a profile page, but the engine refuses BOTH ways of saying so after a
+    // per-anchor hop: ORDER BY on a fetched property, and list comprehensions over the collected
+    // rows. Each fails as `Unknown function 'render'` — an error about a different clause. See
+    // embabel/me#869. Until that lifts, the composer is told which kinds to prefer, and the
+    // `sourceKind` column lets a reader grade what they are shown.
+    WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, srcs,
+         b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
+         b.financial_year + ', in ' + toString(b.gifts) + ' gifts' +
+         CASE WHEN b.branches > 1
+           THEN ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged + ')'
+           ELSE ''
+         END + '.' +
+         CASE WHEN size(srcs) = 0 THEN ' No published source was found.'
+           ELSE reduce(acc = '', s IN srcs |
+             acc + ' SOURCE, ' + s.kind + ' — ' + s.title + ' <' + s.url + '>: ' + s.text)
+         END AS line
+    RETURN render(line,
+      'Report each donor largest first: the register facts, then at most two sentences on who that donor is according to its SOURCE lines, naming the source and what kind it is. Prefer what identifies the donor — who owns or benefits from it — over anything else a source discusses. Never assert a connection yourself; a source says it, in its own words. Do not write that anything is associated with, linked to, related to or behind anything else unless a source says exactly that. Where there is no source, say so in a clause.'
+    ) AS dossier,
+           // The prose and its receipts in ONE call. Citations fetched by a second query can be
+           // dropped when the prose is quoted, and then every subjective statement in it is
+           // unsupported by construction. Here they cannot come apart.
+           collect({donor: donorAsLodged, searchedAs: searchedAs, sources: srcs}) AS attributions,
+      'These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Statements about who a donor is are quoted from the named source, not asserted by this realm — a filing and a news report are different kinds of evidence, and both may be dated. The register asserts only the name on the return.' AS caveats
+
+- name: PartyFundingSources
+  description: >-
+    THE EVIDENCE UNDER PartyFundingDossier, one row per source: which donor, what kind of source it
+    is, its title, its URL, and the text actually read from the page. Same donors, same searches,
+    same ranking — the dossier is this table written as prose.
+
+    IT EXISTS SO THE PROSE CAN BE CHECKED WORD BY WORD. An aggregation consumes its input, so
+    anyone handed only the dossier cannot tell whether a sentence in it came from a source or from
+    the model composing it. This view hands back exactly what the composer saw, so every claim is
+    traceable to the page that carries it — and a claim that traces to nothing is a fabrication,
+    which is a different failure from a wrong number and needs its own check. The harness holds the
+    dossier's every word against these rows.
+
+    ALSO THE VIEW TO READ WHEN A SENTENCE LOOKS WRONG. `text` is the bounded window the producer
+    read around the donor's name, so a disputed line can be traced to the paragraph it came from
+    without leaving this realm.
+  outputLabel: PartyFundingSourceRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include."
+    limit:
+      type: int
+      default: 5
+      description: "How many donors to research. Matches the dossier's limit, or the corpus differs."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    WITH b,
+         CASE WHEN b.donor_name CONTAINS ', ' AND NOT b.donor_name =~ '(?i).*(pty|ltd|limited|council|union|association|group|holdings|trust|inc).*'
+           THEN trim(split(b.donor_name, ',')[1]) + ' ' + trim(split(b.donor_name, ',')[0])
+           ELSE b.donor_name
+         END AS searchName
+    OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})-[:HAS_READ_RESULT]->(h:DonorTrailHit)
+    WHERE h.url IS NULL OR NOT h.url =~ '(?i).*(linkedin|facebook|twitter|instagram|dnb|creditorwatch|companiesdb|opengovau|australialei|bloomberg|aus61business|ib\.com\.au|rightsindevelopment|claytonutz|donation\.watch).*'
+    RETURN b.donor_name      AS donorAsLodged,
+           searchName        AS searchedAs,
+           b.total           AS disclosedTotal,
+           b.financial_year  AS financialYear,
+           b.gifts           AS gifts,
+           b.branches        AS branches,
+           b.branches_lodged AS branchesLodged,
+           CASE
+             WHEN h.url =~ '(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*' THEN 'a disclosure lodged under law'
+             WHEN h.url =~ '(?i).*\\.gov\\.au.*'                     THEN 'a government register'
+             WHEN h.url =~ '(?i).*wikipedia\\.org.*'                 THEN 'an encyclopaedia entry'
+             WHEN h.url IS NULL                                     THEN null
+             ELSE 'reporting by a named publication'
+           END AS sourceKind,
+           h.title      AS title,
+           h.url        AS url,
+           replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', '') AS text
+    ORDER BY disclosedTotal DESC, donorAsLodged, url

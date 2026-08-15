@@ -93,6 +93,10 @@ CASES = [
     # is the hard one: with nothing to report about identity, a summary quietly drops the "no public
     # corporate record" clause from every sentence and reads as if the names were established.
     ("PartyFundingBriefing", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 6}),
+    # The dossier and the evidence under it. Same args, or the corpus the gate checks against is
+    # not the corpus the prose was composed from.
+    ("PartyFundingSources", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 4}),
+    ("PartyFundingDossier", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 4}),
     # INVESTIGATIVE
     ("DisclosureGaps", {"entityName": "Liberal Party of Australia", "minGap": 50000, "limit": 5}),
     ("GroupGiving", {"partyName": "Liberal Party of Australia", "sinceFy": "2023-24", "limit": 3}),
@@ -149,7 +153,14 @@ INFERENCE_TELLS = [
 PROSE_VIEWS = {
     "FamilyBriefing": {"briefing"},
     "PartyFundingBriefing": {"briefing"},
+    "PartyFundingDossier": {"dossier"},
 }
+
+
+# Tells that stay forbidden even when a source is named. A dossier may report that a publication
+# SAYS something; it may not tell the reader what the pattern means. Attribution verbs (indicates,
+# reveals, highlights) are removed for this view only — with a named source they are reporting.
+ATTRIBUTION_SAFE = {"indicat", "reveals", "demonstrat", "highlight", "appears to", "seems to"}
 
 
 def prose_failures(name, rows):
@@ -163,7 +174,10 @@ def prose_failures(name, rows):
             if field not in fields or not isinstance(value, str) or len(value) < 40:
                 continue
             lowered = value.lower()
-            hits = sorted({t for t in INFERENCE_TELLS if t in lowered})
+            tells = INFERENCE_TELLS if name != "PartyFundingDossier" else [
+                t for t in INFERENCE_TELLS if t not in ATTRIBUTION_SAFE
+            ]
+            hits = sorted({t for t in tells if t in lowered})
             if hits:
                 problems.append(f"{field}: inference language {hits}")
             # A briefing with no figures in it has stopped reporting and started narrating.
@@ -322,11 +336,21 @@ DOMAIN_WORDS = {
     "financial", "year", "years", "period", "total", "totals", "totalling", "totaling", "combined",
     "amount", "amounts", "figure", "figures", "record", "records", "donation", "donations",
     "summary", "brief", "report", "reported", "reports", "case", "cases", "example",
+    # the register's own vocabulary for the rollup, and the words a citation needs to exist
+    "separate", "entities", "entity", "party", "parties", "available", "details", "detailed",
+    "classified", "listed", "registered", "registration", "incorporated", "documented",
+    "documents", "document", "titled", "paying", "pays", "pay", "paid",
     "multiple", "different", "differ", "differs", "range", "ranges", "ranging", "vary", "varies",
     "varying", "spanning", "spread", "split", "distributed", "single", "largest", "previous",
     "earlier", "later", "involve", "involved", "involves", "found", "turn",
     # y→i morphology the stem check cannot bridge: the rows say "relying"
     "reliance", "reliant",
+    # attribution: naming who said a thing is the dossier's whole contract
+    "says", "said", "states", "stated", "reports", "reported", "notes", "noted", "describes",
+    "described", "confirms", "confirmed", "mentions", "mentioned", "refers", "referring",
+    "according", "source", "sources", "article", "website", "entry", "profile", "register",
+    "publication", "encyclopaedia", "disclosure", "filing", "lodged", "law", "government",
+    "regulator", "percent", "per", "cent", "owning", "owner", "owns", "owned", "age",
     # the register's own verb is "disclosed"; these restate the transfer, never a donor
     "gave", "given", "giving", "made", "paid", "sent", "went", "directed", "allocated", "provided",
     "channelled", "channeled", "contributed", "contribution", "contributions",
@@ -350,6 +374,14 @@ def briefing_instruction():
     views = yaml.safe_load((VIEWS_DIR / "families.yml").read_text())
     cypher = next(v["cypher"] for v in views if v["name"] == "PartyFundingBriefing")
     quoted = re.search(r"summarize\(line,\s*'(.*?)'\s*\)", cypher, re.S)
+    return quoted.group(1) if quoted else ""
+
+
+def dossier_instruction():
+    """The words the dossier was ASKED with — legitimate vocabulary, like the briefing's."""
+    views = yaml.safe_load((VIEWS_DIR / "families.yml").read_text())
+    cypher = next(v["cypher"] for v in views if v["name"] == "PartyFundingDossier")
+    quoted = re.search(r"render\(line,\s*'(.*?)'\s*\)", cypher, re.S)
     return quoted.group(1) if quoted else ""
 
 
@@ -478,6 +510,24 @@ def run_case(name, args):
         again = post(f"/views/{name}/run", {"args": args}).get("rows", [])
         if json.dumps(again, sort_keys=True) != json.dumps(rows, sort_keys=True):
             problems.append("the same query returned different rows twice — an unstable order or tie-break")
+    # A DOSSIER QUOTES SOURCES, SO ITS FABRICATIONS LOOK LIKE CITATIONS. The composer is handed
+    # page text and asked to say who a donor is; a name it slightly alters ("Ian Walls" for the
+    # sources' "Ian Wall") arrives wearing a URL, which is worse than an unsourced claim because it
+    # invites the reader to stop checking. PartyFundingSources returns exactly what the composer
+    # saw, so every word can be held against it.
+    if name == "PartyFundingDossier" and rows:
+        source = post("/views/PartyFundingSources/run", {"args": args}).get("rows", [])
+        corpus = " ".join(
+            " ".join(str(r.get(f) or "") for f in (
+                "donorAsLodged", "searchedAs", "disclosedTotal", "financialYear", "gifts",
+                "branches", "branchesLodged", "sourceKind", "title", "url", "text"))
+            for r in source
+        )
+        novel = unsupported_words(rows[0].get("dossier") or "", corpus + " " + dossier_instruction())
+        if not source:
+            problems.append("could not fetch the dossier's own source rows — grounding unchecked")
+        elif novel:
+            problems.append(f"words in the dossier that appear in no source it was given: {novel}")
     if name == "PartyFundingBriefing" and rows:
         source = post("/views/PartyFundingReport/run", {"args": args}).get("rows", [])
         corpus = " ".join([r.get("sentence") or "" for r in source] + [briefing_instruction()])
