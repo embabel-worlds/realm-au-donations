@@ -175,3 +175,17 @@
         properties: [same_day_key, donor_name, made_on, financial_year,
                      families_paid, paid_that_day, which_families]
   cache: { kind: ttl, seconds: 86400 }
+
+- name: donorIdentityByName
+  kind: sql
+  datasource: au_donations
+  table: donor_identity
+  keyColumn: lookup_name
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      donor_identity:
+        properties: [lookup_name, identity_key, canonical_name, variants, variant_names,
+                     combined_total, combined_gifts, this_spelling_total]
+  cache: { kind: ttl, seconds: 86400 }

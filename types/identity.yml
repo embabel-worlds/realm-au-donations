@@ -1,0 +1,45 @@
+# Donor IDENTITY — one legal entity that the register spelled more than one way.
+#
+# STRICTLY IDENTITY, NEVER OWNERSHIP. Two rules, both mechanical:
+#   1. the same ABN — definitionally the same entity, spelled twice;
+#   2. identical after normalizing case, punctuation and legal suffix.
+#
+# 'National Australia Bank Limited' and '... Ltd' split $2.52m between them. 'Progressive Business
+# Association Inc' and '... Inc.' differ by a full stop and split $1.59m. Neither grouping is a
+# judgement about anybody — it is the same entity, twice.
+#
+# WHAT THIS IS NOT is a corporate family. Grouping related companies under a common owner asserts
+# CONTROL over named companies and, by implication, named people. Name similarity is not evidence
+# for it: two donors sharing a surname may be one group or may be strangers. A table row asserting
+# it is more dangerous than a sentence doing so, because it looks like a fact and propagates
+# silently into every total downstream. That needs a filing per row — see docs/CORPORATE_GROUPS.md.
+
+- name: DonorIdentity
+  visibility: internal
+  description: >-
+    The spellings under which ONE donor lodged, and what they add up to together. Look up by any
+    variant; the answer is the same identity either way.
+
+    `canonicalName` is the spelling that gave the most money — a presentation choice, not a ruling
+    on which spelling is correct — and `variantNames` always lists them all, so the combined
+    figure can be taken apart. `variants: 1` means the register only ever spelled this donor one
+    way, which is the common case and not a failure.
+  properties:
+    lookup_name:
+      metadata: { identity: "true" }
+    identity_key: "What the variants share: an ABN where one was disclosed, else the normalized name."
+    canonical_name: "The variant that gave the most — a label, not a ruling."
+    variants: "How many spellings the register used for this entity."
+    variant_names: "Every spelling, so a combined total can be taken apart."
+    combined_total: "Total across all spellings, AUD — the figure a single spelling understates."
+    combined_gifts: "Gifts across all spellings."
+    this_spelling_total: "What the spelling you looked up gave on its own."
+  virtualJoins:
+    - anchorLabel: DonationQuery
+      relationship: HAS_IDENTITY
+      keyField: name
+      recordKeyField: lookup_name
+      producer: donorIdentityByName
+      description: >-
+        Resolve a lodged donor name to every spelling of the same entity:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_IDENTITY]->(i:DonorIdentity)`.

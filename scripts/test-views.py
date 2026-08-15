@@ -45,7 +45,9 @@ USER = os.environ.get("EMBABEL_USER", "rod")
 PASS = os.environ.get("EMBABEL_PASS", "test")
 AUTH = base64.b64encode(f"{USER}:{PASS}".encode()).decode()
 BASE = f"http://localhost:{PORT}/api/v1/admin/kg"
-VIEW_FILES = ["donations.yml", "ownership.yml", "investigation.yml"]
+# EVERY view file, or the "every view needs a case" check silently ignores a whole file —
+# which is exactly what happened when families.yml was added and went unchecked.
+VIEW_FILES = ["donations.yml", "ownership.yml", "investigation.yml", "trail.yml", "families.yml"]
 VIEWS_DIR = pathlib.Path(__file__).resolve().parent.parent / "views"
 
 # (view, args) — declared defaults fill the rest, exactly as a bare call would.
@@ -71,6 +73,8 @@ CASES = [
     ("FamilyBackers", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 5}),
     ("BranchSpreading", {"familyName": "Australian Labor Party", "sinceFy": "2023-24", "minBranches": 5, "limit": 5}),
     ("SameDayGiving", {"entityName": "Minerals Council of Australia", "limit": 5}),
+    # Identity only. Asserts nothing about ownership — see docs/CORPORATE_GROUPS.md.
+    ("DonorIdentity", {"entityName": "National Australia Bank Ltd"}),
     # LLM-composed. Gated by prose_failures() below, not just by returning a row: the risk here is
     # a fluent paragraph that interprets, and only an assertion about the WORDS can catch that.
     ("FamilyBriefing", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 8}),

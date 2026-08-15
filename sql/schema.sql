@@ -181,6 +181,64 @@ WHERE d.made_on IS NOT NULL
 GROUP BY dn.name, d.made_on, d.financial_year
 HAVING count(DISTINCT coalesce(pf.family, r.name)) > 1;
 
+-- ── Donor identity ────────────────────────────────────────────────────────────────────────────
+--
+-- The donor side has the same fragmentation as the recipient side and CANNOT be fixed the same
+-- way. Recipients are a closed set: 174 names cover 95% of the money, so a curated table works.
+-- Donors are not: 1,956 names cover 95%, there is no register of them, and new ones appear every
+-- year.
+--
+-- So this does only what can be done WITHOUT ASSERTING ANYTHING. Two rules, both identity:
+--
+--   1. SAME ABN. Definitionally the same legal entity — the register simply spelled it two ways
+--      ('CFMEU Mining & Energy Division' / 'Mining and Energy Union').
+--   2. IDENTICAL AFTER NORMALIZING case, punctuation and legal suffix. 'National Australia Bank
+--      Limited' and '... Ltd' ($2.5m); 'Progressive Business Association Inc' and '... Inc.',
+--      differing by a full stop ($1.59m).
+--
+-- WHAT IT DELIBERATELY DOES NOT DO is group a CORPORATE FAMILY — the related companies behind one
+-- owner. That is not an identity question, it is an assertion of control over named companies and,
+-- by implication, named people. Name similarity is not evidence for it: two donors sharing a
+-- surname may be one group or may be strangers, and a table row asserting the former is more
+-- dangerous than a sentence doing so, because it looks like a fact and propagates silently into
+-- every total downstream. A corporate-group mapping needs a filing per row and is a separate
+-- piece of work — see docs/CORPORATE_GROUPS.md.
+CREATE OR REPLACE VIEW donor_identity AS
+WITH normalized AS (
+    SELECT e.id,
+           e.name,
+           nullif(e.abn, '') AS abn,
+           trim(regexp_replace(
+               regexp_replace(lower(e.name), '[^a-z0-9 ]', '', 'g'),
+               '\s+(pty|ltd|limited|inc|incorporated|the)\s*', ' ', 'g')) AS name_key
+    FROM entities e
+),
+-- ABN wins where present: it is a registered identifier, the normalized name is a heuristic.
+identified AS (
+    SELECT id, name, abn, coalesce(abn, name_key) AS identity_key FROM normalized
+),
+totals AS (
+    SELECT i.identity_key, i.name, sum(d.value)::bigint AS name_total, count(d.*) AS name_gifts
+    FROM identified i JOIN donations_made d ON d.donor_id = i.id
+    GROUP BY i.identity_key, i.name
+),
+-- The canonical label is the spelling that gave the most money — a presentation choice, not a
+-- judgement about which spelling is "right". Every variant is listed beside it either way.
+canonical AS (
+    SELECT DISTINCT ON (identity_key) identity_key, name AS canonical_name
+    FROM totals ORDER BY identity_key, name_total DESC, name
+)
+SELECT
+    t.name                                  AS lookup_name,
+    t.identity_key                          AS identity_key,
+    c.canonical_name                        AS canonical_name,
+    count(*) OVER (PARTITION BY t.identity_key)          AS variants,
+    string_agg(t.name, ' | ') OVER (PARTITION BY t.identity_key) AS variant_names,
+    sum(t.name_total) OVER (PARTITION BY t.identity_key) AS combined_total,
+    sum(t.name_gifts) OVER (PARTITION BY t.identity_key) AS combined_gifts,
+    t.name_total                            AS this_spelling_total
+FROM totals t JOIN canonical c ON c.identity_key = t.identity_key;
+
 -- The role the DATASOURCE connects as: SELECT-only, enforced by the database itself.
 -- Layer three of the read-only assurance (after the platform's readOnly-by-default
 -- refusal and the JDBC session hint): even a compromised credential cannot write.

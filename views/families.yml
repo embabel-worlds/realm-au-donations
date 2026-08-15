@@ -158,3 +158,31 @@
     RETURN summarize(line,
       'State ONLY what these records say: donor names, amounts, financial years, and how many separate party entities each donor gave to. Do NOT infer intent, strategy, coordination or influence; do not write what the pattern indicates, suggests, reveals or demonstrates. Where a donor gave to several separate entities, say so and give the count, because each entity lodges its own return and no single return shows that donor total. If you are tempted to write that something suggests anything, write the underlying number instead.'
     ) AS briefing
+
+- name: DonorIdentity
+  description: >-
+    Every spelling under which one donor lodged, and the combined figure — the total a single
+    spelling understates. Look up by any variant.
+
+    IDENTITY ONLY: same ABN, or identical after normalizing case, punctuation and legal suffix.
+    'National Australia Bank Limited' and '... Ltd' split $2.52m; 'Progressive Business
+    Association Inc' and '... Inc.' differ by a full stop and split $1.59m.
+
+    It does NOT group a corporate family. Related companies under one owner is an assertion of
+    control over named companies and named people, it is not derivable from names, and it belongs
+    in a mapping where every row cites a filing. `variants: 1` is the normal answer and means the
+    register was consistent, not that anything failed.
+  outputLabel: DonorIdentityRow
+  params:
+    entityName:
+      type: string
+      description: "Any lodged spelling of the donor, e.g. 'National Australia Bank Ltd'."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_IDENTITY]->(i:DonorIdentity)
+    RETURN i.canonical_name      AS canonicalName,
+           i.variants            AS variants,
+           i.variant_names       AS variantNames,
+           i.combined_total      AS combinedTotal,
+           i.combined_gifts      AS combinedGifts,
+           i.this_spelling_total AS thisSpellingTotal,
+           i.identity_key        AS identityKey
