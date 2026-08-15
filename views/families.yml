@@ -236,3 +236,208 @@
            g.otherLabel     AS counterparty,
            g.otherDescription AS whatItIs
     LIMIT $limit
+
+- name: PartyFundingReport
+  description: >-
+    Who funded a political family, with EVERY DONOR CARRYING HOW WELL IT IS IDENTIFIED. The
+    register's own figures, the external resolution beside them, and the strength of that
+    resolution as a value on the row — never as a footnote, never as prose a reader can drop.
+
+    `identifiedBy` IS THE POINT OF THIS VIEW, and it is never null:
+      · `identity`   — a registered identifier matched: the ABN disclosed on the return itself.
+      · `structured` — an open knowledge base states this entity under the lodged name. Stated,
+                       not verified as current, and reached through a NAME match at the front door.
+      · `inference`  — a scored name match from a web knowledge graph. A guess with a number on it.
+      · `none`       — nothing resolved, which is the honest answer for most private vehicles.
+
+    `none` IS A VALUE, NOT A NULL. A null cannot distinguish "no entity exists" from "the lodged
+    legal name is the wrong key" from "the source was down" from "nobody asked", and a consumer
+    that meets one invents its own answer — which is the failure this view exists to prevent.
+    `identification` renders the lodged name plus `(unresolved)`, so the honest string is what a
+    careless caller prints.
+
+    BUT `none` STILL CARRIES ONE AMBIGUITY, AND IT IS NOT IN THE ROW. It means "nothing resolved
+    ON THIS RUN", which is the same answer whether no record exists or the external source did not
+    answer. A producer failure is not a property of any one donor, so it cannot be a column: it
+    arrives as a WARNING beside the rows. READ THE WARNINGS BEFORE READING A `none` — one of them
+    turns every `none` in the result into "unknown", and the sentence this view renders ("no public
+    corporate record was resolved under this lodged name") becomes a claim nobody checked. The
+    harness asserts exactly that, because a row cannot.
+
+    PRECEDENCE IS identity > structured > inference, one winner per row, never blended: an ABN on
+    the return outranks a knowledge-base statement, which outranks a scored name match. `evidence`
+    carries the winner's basis and NOTHING ELSE, so a reader can check exactly the claim being made.
+
+    `path` IS THE NAVIGATION, as data rather than narration: family → the entities that lodged →
+    the donor as lodged → what it resolved to. Every step is a name that can be looked up again.
+
+    `combinedAcrossSpellings` IS NOT THIS FAMILY AND NOT THIS YEAR — it is the donor's total across
+    every spelling, recipient and year. Read it ONLY when `spellingVariants` > 1, which is when the
+    register split one donor and the lodged figure understates. `variants: 1` is the normal case.
+
+    COST: each row beyond the store is an external resolution, and the inference tier is a
+    knowledge-graph ENTITY EXPORT per donor (~25 credits, free tier ~400 a MONTH) that takes
+    seconds. Keep `limit` small. One row per donor PER FINANCIAL YEAR, exactly as FamilyBackers.
+  outputLabel: PartyFundingRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia', 'Australian Labor Party'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include, as the register writes it."
+    limit:
+      type: int
+      default: 6
+      description: "Maximum rows. EACH ROW COSTS an external resolution — keep it small."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    // Ties are real: two donors can disclose the same amount, and an unstable tie-break
+    // silently changes WHICH donors the limit keeps. Sort by name and year after the total.
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    MATCH (q:DonationQuery {name: b.donor_name})-[:HAS_IDENTITY]->(i:DonorIdentity)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e:DonationEntity)-[:HAS_WIKIDATA]->(w:DonorWikidata)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e2:DonationEntity)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    WITH b, i, w, o,
+         CASE
+           WHEN i.identity_key =~ '^[0-9]{11}$' THEN 'identity'
+           WHEN w.wd IS NOT NULL                THEN 'structured'
+           WHEN o.name IS NOT NULL              THEN 'inference'
+           ELSE 'none'
+         END AS identifiedBy
+    WITH b, i, w, o, identifiedBy,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN i.canonical_name
+           WHEN identifiedBy = 'structured' THEN w.wdLabel
+           WHEN identifiedBy = 'inference'  THEN o.name
+           ELSE b.donor_name + ' (unresolved)'
+         END AS identification,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN 'ABN ' + i.identity_key + ', disclosed on the return'
+           WHEN identifiedBy = 'structured' THEN 'Wikidata ' + w.wd + ' — ' + coalesce(w.wdDescription, 'no description') + coalesce(', ABN ' + w.abn, '') + coalesce(', LEI ' + w.lei, '')
+           WHEN identifiedBy = 'inference'  THEN 'scored name match on ' + coalesce(o.ownerMatchedFor, b.donor_name) + ', fused from ' + coalesce(toString(o.nbOrigins), 'an unstated number of') + ' web sources' + coalesce('; ultimate owner stated as ' + o.ultimateParentName, '') + coalesce('; parent stated as ' + o.parentCompanyName, '')
+           ELSE null
+         END AS evidence
+    WITH b, i, identifiedBy, identification, evidence,
+         CASE WHEN b.branches > 1
+           THEN ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged + ')'
+           ELSE ''
+         END AS branchClause,
+         CASE WHEN i.variants > 1
+           THEN ' The register spelled this donor ' + toString(i.variants) + ' ways (' + i.variant_names + '); across all of them it disclosed $' + toString(i.combined_total) + ' to all recipients in all years.'
+           ELSE ''
+         END AS spellingClause
+    RETURN b.donor_name      AS donorAsLodged,
+           b.financial_year  AS financialYear,
+           b.total           AS disclosedTotal,
+           b.gifts           AS gifts,
+           b.branches        AS branches,
+           b.branches_lodged AS branchesLodged,
+           i.variants        AS spellingVariants,
+           i.combined_total  AS combinedAcrossSpellings,
+           identifiedBy      AS identifiedBy,
+           identification    AS identification,
+           evidence          AS evidence,
+           $familyName + ' → ' + replace(b.branches_lodged, ' | ', ' + ') + ' → ' + b.donor_name + ' → ' + identification AS path,
+           b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' + b.financial_year + ', in ' + toString(b.gifts) + ' gifts' + branchClause + '.' +
+           CASE
+             WHEN identifiedBy = 'identity'   THEN ' Identified by ' + coalesce(evidence, 'a registered identifier') + '.'
+             WHEN identifiedBy = 'structured' THEN ' Recorded under this name as ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — stated, not verified as current.'
+             WHEN identifiedBy = 'inference'  THEN ' A name match resolved this lodged name to ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — check it before relying on it.'
+             ELSE ' No public corporate record was resolved under this lodged name.'
+           END + spellingClause AS sentence
+    ORDER BY disclosedTotal DESC, donorAsLodged, financialYear
+
+- name: PartyFundingBriefing
+  description: >-
+    The funding report as prose — composed by an LLM from PartyFundingReport's OWN rendered
+    sentences and nothing else, with the caveats appended verbatim.
+
+    WHY THIS IS SAFE WHERE A BRIEF OVER RAW ROWS IS NOT. A write-up produced by hand from these
+    figures could not be reproduced: every fact in it existed in the register, but the RESOLUTION
+    STATUS did not, so the writer supplied it from memory and a second run differed. Here the tier
+    is already in the model's input as words — `identified by ABN …`, `stated, not verified as
+    current`, `a name match suggests`, `no public corporate record was resolved` — so the model
+    can order and join sentences but cannot invent, upgrade or drop a qualifier without
+    contradicting the text in front of it.
+
+    IT DESCRIBES, IT DOES NOT INTERPRET. The same aggregation over the same register wrote "a
+    strategy of targeted influence" and "suggests coordination" from records holding nothing but
+    dates, amounts and party names, and the grounding verifier passed it — correctly, on its own
+    terms, since "suggests coordination" asserts no fact. A verifier catches an invented fact;
+    nothing catches invented significance. The harness catches it here, by asserting the WORDS.
+
+    `caveats` IS A CONSTANT AND MUST TRAVEL WITH THE PROSE. It is a separate column rather than
+    text appended to the brief because the engine cannot post-process an aggregation — a query
+    that reads `summarize(...)` in a later clause is refused. Anything rendering `briefing`
+    renders `caveats` under it, verbatim, unedited.
+
+    THIS VIEW IS NOT DETERMINISTIC AND PartyFundingReport IS. Composition happens at the host's
+    aggregation model, and on repeated runs of the same query roughly one in four briefs drifts —
+    reaching for a word the rows do not contain ("notable", "considerably", "transparency"), or
+    appending the host's own refusal sentence to an otherwise complete brief. The harness gate is
+    therefore a PUBLISHING DECISION rather than a build error: a red brief means do not print this
+    one, not that the view is broken. Nothing about the rows changes — the report's `sentence` and
+    `path` columns render identically every time, and are what to use when a figure must be quoted.
+
+    Use PartyFundingReport when the reader needs the figures and the tier as columns to check.
+  outputLabel: PartyFundingBriefRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include."
+    limit:
+      type: int
+      default: 6
+      description: "How many donor rows to brief from — the largest by total. EACH COSTS a resolution."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    // Ties are real: two donors can disclose the same amount, and an unstable tie-break
+    // silently changes WHICH donors the limit keeps. Sort by name and year after the total.
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    MATCH (q:DonationQuery {name: b.donor_name})-[:HAS_IDENTITY]->(i:DonorIdentity)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e:DonationEntity)-[:HAS_WIKIDATA]->(w:DonorWikidata)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e2:DonationEntity)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    WITH b, i, w, o,
+         CASE
+           WHEN i.identity_key =~ '^[0-9]{11}$' THEN 'identity'
+           WHEN w.wd IS NOT NULL                THEN 'structured'
+           WHEN o.name IS NOT NULL              THEN 'inference'
+           ELSE 'none'
+         END AS identifiedBy
+    WITH b, i, w, o, identifiedBy,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN i.canonical_name
+           WHEN identifiedBy = 'structured' THEN w.wdLabel
+           WHEN identifiedBy = 'inference'  THEN o.name
+           ELSE b.donor_name + ' (unresolved)'
+         END AS identification,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN 'ABN ' + i.identity_key + ', disclosed on the return'
+           WHEN identifiedBy = 'structured' THEN 'Wikidata ' + w.wd + ' — ' + coalesce(w.wdDescription, 'no description')
+           WHEN identifiedBy = 'inference'  THEN 'scored name match on ' + coalesce(o.ownerMatchedFor, b.donor_name) + ', fused from ' + coalesce(toString(o.nbOrigins), 'an unstated number of') + ' web sources'
+           ELSE null
+         END AS evidence
+    WITH b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
+         b.financial_year + ', in ' + toString(b.gifts) + ' gifts' +
+         CASE WHEN b.branches > 1
+           THEN ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged + ')'
+           ELSE ''
+         END + '.' +
+         CASE
+           WHEN identifiedBy = 'identity'   THEN ' Identified by ' + coalesce(evidence, 'a registered identifier') + '.'
+           WHEN identifiedBy = 'structured' THEN ' Recorded under this name as ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — stated, not verified as current.'
+           WHEN identifiedBy = 'inference'  THEN ' A name match resolved this lodged name to ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — check it before relying on it.'
+           ELSE ' No public corporate record was resolved under this lodged name.'
+         END AS line
+    RETURN render(line,
+      'Write these donors as a short brief for a reader, in the order given — the rollup as the register discloses it, largest first. Every name is a name as LODGED: copy it exactly, abbreviations and all, and never expand or tidy one.'
+    ) AS briefing,
+      'These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Every corporate identification is a match to check — the register asserts only the name on the return.' AS caveats
