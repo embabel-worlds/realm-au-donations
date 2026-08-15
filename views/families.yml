@@ -236,3 +236,428 @@
            g.otherLabel     AS counterparty,
            g.otherDescription AS whatItIs
     LIMIT $limit
+
+- name: PartyFundingReport
+  description: >-
+    Who funded a political family, with EVERY DONOR CARRYING HOW WELL IT IS IDENTIFIED. The
+    register's own figures, the external resolution beside them, and the strength of that
+    resolution as a value on the row — never as a footnote, never as prose a reader can drop.
+
+    `identifiedBy` IS THE POINT OF THIS VIEW, and it is never null:
+      · `identity`   — a registered identifier matched: the ABN disclosed on the return itself.
+      · `structured` — an open knowledge base states this entity under the lodged name. Stated,
+                       not verified as current, and reached through a NAME match at the front door.
+      · `inference`  — a scored name match from a web knowledge graph. A guess with a number on it.
+      · `none`       — nothing resolved, which is the honest answer for most private vehicles.
+
+    `none` IS A VALUE, NOT A NULL. A null cannot distinguish "no entity exists" from "the lodged
+    legal name is the wrong key" from "the source was down" from "nobody asked", and a consumer
+    that meets one invents its own answer — which is the failure this view exists to prevent.
+    `identification` renders the lodged name plus `(unresolved)`, so the honest string is what a
+    careless caller prints.
+
+    BUT `none` STILL CARRIES ONE AMBIGUITY, AND IT IS NOT IN THE ROW. It means "nothing resolved
+    ON THIS RUN", which is the same answer whether no record exists or the external source did not
+    answer. A producer failure is not a property of any one donor, so it cannot be a column: it
+    arrives as a WARNING beside the rows. READ THE WARNINGS BEFORE READING A `none` — one of them
+    turns every `none` in the result into "unknown", and the sentence this view renders ("no public
+    corporate record was resolved under this lodged name") becomes a claim nobody checked. The
+    harness asserts exactly that, because a row cannot.
+
+    PRECEDENCE IS identity > structured > inference, one winner per row, never blended: an ABN on
+    the return outranks a knowledge-base statement, which outranks a scored name match. `evidence`
+    carries the winner's basis and NOTHING ELSE, so a reader can check exactly the claim being made.
+
+    `path` IS THE NAVIGATION, as data rather than narration: family → the entities that lodged →
+    the donor as lodged → what it resolved to. Every step is a name that can be looked up again.
+
+    `combinedAcrossSpellings` IS NOT THIS FAMILY AND NOT THIS YEAR — it is the donor's total across
+    every spelling, recipient and year. Read it ONLY when `spellingVariants` > 1, which is when the
+    register split one donor and the lodged figure understates. `variants: 1` is the normal case.
+
+    COST: each row beyond the store is an external resolution, and the inference tier is a
+    knowledge-graph ENTITY EXPORT per donor (~25 credits, free tier ~400 a MONTH) that takes
+    seconds. Keep `limit` small. One row per donor PER FINANCIAL YEAR, exactly as FamilyBackers.
+  outputLabel: PartyFundingRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia', 'Australian Labor Party'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include, as the register writes it."
+    limit:
+      type: int
+      default: 6
+      description: "Maximum rows. EACH ROW COSTS an external resolution — keep it small."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    // Ties are real: two donors can disclose the same amount, and an unstable tie-break
+    // silently changes WHICH donors the limit keeps. Sort by name and year after the total.
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    MATCH (q:DonationQuery {name: b.donor_name})-[:HAS_IDENTITY]->(i:DonorIdentity)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e:DonationEntity)-[:HAS_WIKIDATA]->(w:DonorWikidata)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e2:DonationEntity)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    WITH b, i, w, o,
+         CASE
+           WHEN i.identity_key =~ '^[0-9]{11}$' THEN 'identity'
+           WHEN w.wd IS NOT NULL                THEN 'structured'
+           WHEN o.name IS NOT NULL              THEN 'inference'
+           ELSE 'none'
+         END AS identifiedBy
+    WITH b, i, w, o, identifiedBy,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN i.canonical_name
+           WHEN identifiedBy = 'structured' THEN w.wdLabel
+           WHEN identifiedBy = 'inference'  THEN o.name
+           ELSE b.donor_name + ' (unresolved)'
+         END AS identification,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN 'ABN ' + i.identity_key + ', disclosed on the return'
+           WHEN identifiedBy = 'structured' THEN 'Wikidata ' + w.wd + ' — ' + coalesce(w.wdDescription, 'no description') + coalesce(', ABN ' + w.abn, '') + coalesce(', LEI ' + w.lei, '')
+           WHEN identifiedBy = 'inference'  THEN 'scored name match on ' + coalesce(o.ownerMatchedFor, b.donor_name) + ', fused from ' + coalesce(toString(o.nbOrigins), 'an unstated number of') + ' web sources' + coalesce('; ultimate owner stated as ' + o.ultimateParentName, '') + coalesce('; parent stated as ' + o.parentCompanyName, '')
+           ELSE null
+         END AS evidence
+    WITH b, i, identifiedBy, identification, evidence,
+         CASE WHEN b.branches > 1
+           THEN ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged + ')'
+           ELSE ''
+         END AS branchClause,
+         CASE WHEN i.variants > 1
+           THEN ' The register spelled this donor ' + toString(i.variants) + ' ways (' + i.variant_names + '); across all of them it disclosed $' + toString(i.combined_total) + ' to all recipients in all years.'
+           ELSE ''
+         END AS spellingClause
+    RETURN b.donor_name      AS donorAsLodged,
+           b.financial_year  AS financialYear,
+           b.total           AS disclosedTotal,
+           b.gifts           AS gifts,
+           b.branches        AS branches,
+           b.branches_lodged AS branchesLodged,
+           i.variants        AS spellingVariants,
+           i.combined_total  AS combinedAcrossSpellings,
+           identifiedBy      AS identifiedBy,
+           identification    AS identification,
+           evidence          AS evidence,
+           $familyName + ' → ' + replace(b.branches_lodged, ' | ', ' + ') + ' → ' + b.donor_name + ' → ' + identification AS path,
+           b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' + b.financial_year + ', in ' + toString(b.gifts) + ' gifts' + branchClause + '.' +
+           CASE
+             WHEN identifiedBy = 'identity'   THEN ' Identified by ' + coalesce(evidence, 'a registered identifier') + '.'
+             WHEN identifiedBy = 'structured' THEN ' Recorded under this name as ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — stated, not verified as current.'
+             WHEN identifiedBy = 'inference'  THEN ' A name match resolved this lodged name to ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — check it before relying on it.'
+             ELSE ' No public corporate record was resolved under this lodged name.'
+           END + spellingClause AS sentence
+    ORDER BY disclosedTotal DESC, donorAsLodged, financialYear
+
+- name: PartyFundingBriefing
+  description: >-
+    The funding report as prose — composed by an LLM from PartyFundingReport's OWN rendered
+    sentences and nothing else, with the caveats appended verbatim.
+
+    WHY THIS IS SAFE WHERE A BRIEF OVER RAW ROWS IS NOT. A write-up produced by hand from these
+    figures could not be reproduced: every fact in it existed in the register, but the RESOLUTION
+    STATUS did not, so the writer supplied it from memory and a second run differed. Here the tier
+    is already in the model's input as words — `identified by ABN …`, `stated, not verified as
+    current`, `a name match suggests`, `no public corporate record was resolved` — so the model
+    can order and join sentences but cannot invent, upgrade or drop a qualifier without
+    contradicting the text in front of it.
+
+    IT DESCRIBES, IT DOES NOT INTERPRET. The same aggregation over the same register wrote "a
+    strategy of targeted influence" and "suggests coordination" from records holding nothing but
+    dates, amounts and party names, and the grounding verifier passed it — correctly, on its own
+    terms, since "suggests coordination" asserts no fact. A verifier catches an invented fact;
+    nothing catches invented significance. The harness catches it here, by asserting the WORDS.
+
+    `caveats` IS A CONSTANT AND MUST TRAVEL WITH THE PROSE. It is a separate column rather than
+    text appended to the brief because the engine cannot post-process an aggregation — a query
+    that reads `summarize(...)` in a later clause is refused. Anything rendering `briefing`
+    renders `caveats` under it, verbatim, unedited.
+
+    THIS VIEW IS NOT DETERMINISTIC AND PartyFundingReport IS. Composition happens at the host's
+    aggregation model, and on repeated runs of the same query roughly one in four briefs drifts —
+    reaching for a word the rows do not contain ("notable", "considerably", "transparency"), or
+    appending the host's own refusal sentence to an otherwise complete brief. The harness gate is
+    therefore a PUBLISHING DECISION rather than a build error: a red brief means do not print this
+    one, not that the view is broken. Nothing about the rows changes — the report's `sentence` and
+    `path` columns render identically every time, and are what to use when a figure must be quoted.
+
+    Use PartyFundingReport when the reader needs the figures and the tier as columns to check.
+  outputLabel: PartyFundingBriefRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include."
+    limit:
+      type: int
+      default: 6
+      description: "How many donor rows to brief from — the largest by total. EACH COSTS a resolution."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    // Ties are real: two donors can disclose the same amount, and an unstable tie-break
+    // silently changes WHICH donors the limit keeps. Sort by name and year after the total.
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    MATCH (q:DonationQuery {name: b.donor_name})-[:HAS_IDENTITY]->(i:DonorIdentity)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e:DonationEntity)-[:HAS_WIKIDATA]->(w:DonorWikidata)
+    OPTIONAL MATCH (q)-[:HAS_ENTITY]->(e2:DonationEntity)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    WITH b, i, w, o,
+         CASE
+           WHEN i.identity_key =~ '^[0-9]{11}$' THEN 'identity'
+           WHEN w.wd IS NOT NULL                THEN 'structured'
+           WHEN o.name IS NOT NULL              THEN 'inference'
+           ELSE 'none'
+         END AS identifiedBy
+    WITH b, i, w, o, identifiedBy,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN i.canonical_name
+           WHEN identifiedBy = 'structured' THEN w.wdLabel
+           WHEN identifiedBy = 'inference'  THEN o.name
+           ELSE b.donor_name + ' (unresolved)'
+         END AS identification,
+         CASE
+           WHEN identifiedBy = 'identity'   THEN 'ABN ' + i.identity_key + ', disclosed on the return'
+           WHEN identifiedBy = 'structured' THEN 'Wikidata ' + w.wd + ' — ' + coalesce(w.wdDescription, 'no description')
+           WHEN identifiedBy = 'inference'  THEN 'scored name match on ' + coalesce(o.ownerMatchedFor, b.donor_name) + ', fused from ' + coalesce(toString(o.nbOrigins), 'an unstated number of') + ' web sources'
+           ELSE null
+         END AS evidence
+    WITH b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
+         b.financial_year + ', in ' + toString(b.gifts) + ' gifts' +
+         CASE WHEN b.branches > 1
+           THEN ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged + ')'
+           ELSE ''
+         END + '.' +
+         CASE
+           WHEN identifiedBy = 'identity'   THEN ' Identified by ' + coalesce(evidence, 'a registered identifier') + '.'
+           WHEN identifiedBy = 'structured' THEN ' Recorded under this name as ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — stated, not verified as current.'
+           WHEN identifiedBy = 'inference'  THEN ' A name match resolved this lodged name to ' + identification + ' (' + coalesce(evidence, 'no basis recorded') + ') — check it before relying on it.'
+           ELSE ' No public corporate record was resolved under this lodged name.'
+         END AS line
+    RETURN render(line,
+      'Write these donors as a short brief for a reader, in the order given — the rollup as the register discloses it, largest first. Every name is a name as LODGED: copy it exactly, abbreviations and all, and never expand or tidy one.'
+    ) AS briefing,
+      'These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Every corporate identification is a match to check — the register asserts only the name on the return.' AS caveats
+
+- name: PartyFundingDossier
+  description: >-
+    Who funds a political family AND WHO THOSE FUNDERS ARE, joined to what published sources say
+    about them — each such statement attributed to the source that makes it, with its URL.
+
+    THIS IS THE VIEW THE REGISTER CANNOT BE READ WITHOUT. A lodged name is a legal string, and for
+    the vehicles that give the most money it is designed to tell a reader nothing: a private company
+    with no trading history, a trust, a surname reversed. PartyFundingReport is honest about that
+    and says `none`, which is correct and useless — the whole reason the money is worth following is
+    that the answer exists elsewhere. A substantial-holder notice names a trust's beneficiaries; a
+    company's own ASX disclosure describes a holder; an ABN registry gives an entity type; a
+    newspaper investigation names the family behind a shell. Refusing to look is not neutrality.
+
+    WHAT IT NEVER DOES IS ASSERT THE LINK ITSELF. Every statement about who a donor IS is reported
+    as "<source> says X", never as this realm's finding, and the URL travels with it so a reader
+    checks rather than trusts. That division is the same one docs/CORPORATE_GROUPS.md draws: naming
+    a corporate group is a claim needing a filing per row, and quoting a filing that names one is
+    not that claim — it is a lead, sourced.
+
+    READ THE SOURCE BEFORE THE SENTENCE. A regulatory filing and a news investigation are not the
+    same evidence, and this view deliberately does not rank them for you: both appear, each named.
+    An ASX Form 603 stating a trust's beneficiaries is a legal disclosure; a masthead's reporting is
+    journalism that may be right, contested, or dated. The register asserts only the name on the
+    return.
+
+    A DONOR WITH NO COVERAGE STILL APPEARS, with its disclosed figures and nothing said about it —
+    dropping it would understate the family's funding, which is the failure the whole realm exists
+    to prevent.
+
+    COST: one web search per donor plus up to three page reads, cached six hours. Keep `limit`
+    small; this is a dossier over the largest backers, never a scan.
+  outputLabel: PartyFundingDossierRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia', 'Australian Labor Party'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include, as the register writes it."
+    limit:
+      type: int
+      default: 5
+      description: "How many donors to research. EACH COSTS a search and up to three page reads."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    // A PERSON is lodged surname-first ('Wall, Pamela') — a string no article, filing or profile
+    // carries — so a search under the lodged form finds nothing and the largest donor in a report
+    // comes back blank. Inverted for the SEARCH only; every printed name stays as lodged.
+    WITH b,
+         CASE WHEN b.donor_name CONTAINS ', ' AND NOT b.donor_name =~ '(?i).*(pty|ltd|limited|council|union|association|group|holdings|trust|inc).*'
+           THEN trim(split(b.donor_name, ',')[1]) + ' ' + trim(split(b.donor_name, ',')[0])
+           ELSE b.donor_name
+         END AS searchName
+    OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})-[:HAS_READ_RESULT]->(h:DonorTrailHit)
+    // Directories, aggregators and social pages restate an address and a like-count. They identify
+    // nobody, and every one of them displaces a source that does.
+    WHERE h.url IS NULL OR NOT h.url =~ '(?i).*(linkedin|facebook|twitter|instagram|dnb|creditorwatch|companiesdb|opengovau|australialei|bloomberg|aus61business|ib\.com\.au|rightsindevelopment|claytonutz|donation\.watch).*'
+    // ONE ROW PER DONOR, ITS FIRST THREE SOURCES, each labelled with WHAT KIND it is. A row per
+    // SOURCE let one well-covered donor consume the whole brief while three others went unmentioned:
+    // coverage cannot be requested in a prompt when the input itself is lopsided. Grouped here,
+    // every donor is exactly one item, so a brief that drops one is visibly short.
+    //
+    // The kind is folded into the collected map rather than projected in its own WITH, and nothing
+    // orders on a fetched property — after a paid per-anchor hop both defeat the planner, and the
+    // failure surfaces as an unrelated "unknown function" rather than as a refusal.
+    // EVIDENCE GRADE DECIDES WHAT A READER SEES FIRST. A substantial-holder notice lodged under law
+    // and a company profile page arrive from a search engine in popularity order, which is not the
+    // order that helps anyone weigh a claim about who funds a political party. Ranked here, so the
+    // three sources kept per donor are the three strongest available rather than the three most
+    // popular. (This was believed impossible for several days: ordering on a fetched property
+    // appeared to be refused by the planner. It was not — see embabel/me#871.)
+    WITH b, searchName, h,
+         CASE
+           WHEN h.url =~ '(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*' THEN 1
+           WHEN h.url =~ '(?i).*\\.gov\\.au.*'                     THEN 2
+           WHEN h.url =~ '(?i).*wikipedia\\.org.*'                 THEN 4
+           ELSE 3
+         END AS grade
+    ORDER BY b.total DESC, b.donor_name, grade
+    WITH b, searchName,
+         collect(CASE WHEN h.url IS NULL THEN null ELSE {
+           kind: CASE
+             WHEN h.url =~ '(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*' THEN 'a disclosure lodged under law'
+             WHEN h.url =~ '(?i).*\\.gov\\.au.*'                     THEN 'a government register'
+             WHEN h.url =~ '(?i).*wikipedia\\.org.*'                 THEN 'an encyclopaedia entry'
+             ELSE 'reporting by a named publication'
+           END,
+           title: h.title,
+           url: h.url,
+           // BOUNDED QUOTE. The producer reads a 3,000-character window per page; three of those
+           // per donor is more than one composition call can hold, and the fold then summarises
+           // its own partials — which silently drops whole donors from the brief. 400 characters
+           // carries the sentence that identifies the donor, which is all this needs.
+           text: left(replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', ''), 700)
+         } END)[0..3] AS srcs
+    WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, b.total AS total, srcs,
+         b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
+         b.financial_year + ', in ' + toString(b.gifts) + ' gifts' +
+         CASE WHEN b.branches > 1
+           THEN ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged + ')'
+           ELSE ''
+         END + '.' +
+         CASE WHEN size(srcs) = 0 THEN ' No published source was found.'
+           ELSE reduce(acc = '', s IN srcs |
+             acc + ' SOURCE, ' + s.kind + ' — ' + s.title + ' <' + s.url + '>: ' + s.text)
+         END AS line
+    // ONE ROW PER DONOR, AND ONE COMPOSITION PER DONOR. Neo4j groups an aggregation by the other
+    // returned keys, so returning the donor beside `render(...)` finalises the reduction once per
+    // donor rather than once per report.
+    //
+    // That is not a performance choice, it is a correctness one. Composing eight donors in a single
+    // pass drifts: four consecutive runs each introduced a word no source used — "wholly" for
+    // "100%", "violations" for "infringement notice", and once "ties" between a donor and the
+    // party, which is the unsupported relation this realm exists to refuse. Five donors passed
+    // first time. The variable is how much a model must hold at once, so this holds one donor.
+    //
+    // Coverage also stops being something to check: N donors in, N rows out, and a missing donor is
+    // a missing ROW that any caller can count — not a silently shorter paragraph.
+    RETURN donorAsLodged AS donor,
+           searchedAs    AS searchedAs,
+           total         AS disclosedTotal,
+           render(line,
+             'Report this donor: the register facts, then at most two sentences on who it is according to its SOURCE lines, naming the source and what kind it is. Prefer what identifies the donor — who owns or benefits from it — over anything else a source discusses. Never assert a connection yourself; a source says it, in its own words. Do not write that anything is associated with, linked to, related to or behind anything else unless a source says exactly that. Where there is no source, say so in a clause.'
+           ) AS prose,
+           head(collect(srcs)) AS sources,
+      'These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Statements about who a donor is are quoted from the named source, not asserted by this realm — a filing and a news report are different kinds of evidence, and both may be dated. The register asserts only the name on the return.' AS caveats
+    ORDER BY disclosedTotal DESC, donor
+
+- name: PartyFundingSources
+  description: >-
+    THE EVIDENCE UNDER PartyFundingDossier, one row per source: which donor, what kind of source it
+    is, its title, its URL, and the text actually read from the page. Same donors, same searches,
+    same ranking — the dossier is this table written as prose.
+
+    IT EXISTS SO THE PROSE CAN BE CHECKED WORD BY WORD. An aggregation consumes its input, so
+    anyone handed only the dossier cannot tell whether a sentence in it came from a source or from
+    the model composing it. This view hands back exactly what the composer saw, so every claim is
+    traceable to the page that carries it — and a claim that traces to nothing is a fabrication,
+    which is a different failure from a wrong number and needs its own check. The harness holds the
+    dossier's every word against these rows.
+
+    ALSO THE VIEW TO READ WHEN A SENTENCE LOOKS WRONG. `text` is the bounded window the producer
+    read around the donor's name, so a disputed line can be traced to the paragraph it came from
+    without leaving this realm.
+  outputLabel: PartyFundingSourceRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include."
+    limit:
+      type: int
+      default: 5
+      description: "How many donors to research. Matches the dossier's limit, or the corpus differs."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+    WITH b,
+         CASE WHEN b.donor_name CONTAINS ', ' AND NOT b.donor_name =~ '(?i).*(pty|ltd|limited|council|union|association|group|holdings|trust|inc).*'
+           THEN trim(split(b.donor_name, ',')[1]) + ' ' + trim(split(b.donor_name, ',')[0])
+           ELSE b.donor_name
+         END AS searchName
+    OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})-[:HAS_READ_RESULT]->(h:DonorTrailHit)
+    WHERE h.url IS NULL OR NOT h.url =~ '(?i).*(linkedin|facebook|twitter|instagram|dnb|creditorwatch|companiesdb|opengovau|australialei|bloomberg|aus61business|ib\.com\.au|rightsindevelopment|claytonutz|donation\.watch).*'
+    RETURN b.donor_name      AS donorAsLodged,
+           searchName        AS searchedAs,
+           b.total           AS disclosedTotal,
+           b.financial_year  AS financialYear,
+           b.gifts           AS gifts,
+           b.branches        AS branches,
+           b.branches_lodged AS branchesLodged,
+           CASE
+             WHEN h.url =~ '(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*' THEN 'a disclosure lodged under law'
+             WHEN h.url =~ '(?i).*\\.gov\\.au.*'                     THEN 'a government register'
+             WHEN h.url =~ '(?i).*wikipedia\\.org.*'                 THEN 'an encyclopaedia entry'
+             WHEN h.url IS NULL                                     THEN null
+             ELSE 'reporting by a named publication'
+           END AS sourceKind,
+           h.title      AS title,
+           h.url        AS url,
+           replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', '') AS text
+    ORDER BY disclosedTotal DESC, donorAsLodged, url
+
+- name: PartyFundingScale
+  description: >-
+    The size of the picture a donor report sits inside: how many donors disclosed to a political
+    family in a window, what they gave in total, in how many gifts, and how far the widest-spread
+    donor reached across the family's separate legal entities.
+
+    A REPORT ON THE LARGEST DONORS IS MEANINGLESS WITHOUT IT. "X gave $5.26m" is a number a reader
+    cannot size: against a family total it is either most of the funding or a rounding error, and
+    only one of those is worth their attention. Read it beside PartyFundingDossier, which reports
+    the top handful — the pair is the fact and its proportion.
+
+    Store only, no external call, no model: plain arithmetic over the register's own rollup, so it
+    returns the same figures every time and every one of them can be checked against the returns.
+  outputLabel: PartyFundingScaleRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include, as the register writes it."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    RETURN count(DISTINCT b.donor_name) AS donors,
+           sum(b.total)                 AS disclosedTotal,
+           sum(b.gifts)                 AS gifts,
+           max(b.branches)              AS mostEntitiesOneDonorReached
