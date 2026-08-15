@@ -1,0 +1,38 @@
+# The donor trail's own hit type — a web result WITH the page read.
+#
+# gov-au's WebHit carries title, snippet and url. This one adds `content`: phrase-anchored excerpts
+# of the page itself. The distinction is the whole point. Listing a source is not reading it, and a
+# view that hands back links has done the easy half of the work.
+
+- name: DonorTrailHit
+  visibility: internal
+  description: >-
+    One web result for a donor phrase, WITH bounded excerpts of the page itself where it could be
+    read. Not a government record and not evidence about the donor: a page on which the searched
+    terms appear, carrying its own link so a reader can go and judge it.
+
+    `content` is the part worth quoting — phrase-anchored windows of the actual page, never the
+    whole thing. It is ABSENT when the page could not be fetched, which is different from the term
+    not appearing in it: the first is UNKNOWN and is recorded as a diagnostic, the second is a
+    finding. Do not read a missing `content` as "nothing there".
+
+    A match establishes only that the words appear on that page. Sources arrive unranked and
+    unfiltered by credibility on purpose — a primary filing and a partisan blog are told apart by a
+    human, and the URL is what makes that possible.
+  properties:
+    url:
+      metadata: { identity: "true" }
+    title: "The page title as the index reports it."
+    snippet: "The index's snippet — a teaser, and frequently truncated at the interesting word."
+    content: "Phrase-anchored EXCERPTS of the page itself. Absent when the page could not be read."
+    age: "Freshness label when the index knows it."
+    searchPhrase: "The phrase this result answered — the honest scope of the match."
+  virtualJoins:
+    - anchorLabel: CoverageQuery
+      relationship: HAS_READ_RESULT
+      keyField: phrase
+      recordKeyField: searchPhrase
+      producer: webForPhraseRead
+      description: >-
+        Web results for a pinned phrase, with the top pages read:
+        `MATCH (q:CoverageQuery {phrase:'…'})-[:HAS_READ_RESULT]->(h:DonorTrailHit)`.

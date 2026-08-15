@@ -1,0 +1,48 @@
+# The donor trail's own web producer — gov-au's webForPhrase shape, plus FOLLOW.
+#
+# WHY A SEPARATE PRODUCER rather than reusing gov-au's: this one READS the pages it finds. That is
+# a different cost profile (a page fetch per result, not just a search) and a different contract,
+# so it is declared where it is used rather than changing a producer other realms depend on.
+#
+# WHY IT READS THEM AT ALL. A snippet is not the document, and the gap is exactly where the answers
+# live. An ASX Form 603 snippet truncates at the point a trust's beneficiaries are named. A
+# Wikipedia snippet for a political donor omitted the sentence stating the donation — the sentence
+# that independently corroborates the register's own figure. Both times the answer was one fetch
+# away and the caller was handed a link instead.
+#
+# The excerpt discipline is the platform's: bounded windows around the anchor term, never the whole
+# page. A page that cannot be read yields NO content field and a diagnostic — "could not read it"
+# and "the term is not in it" must never look the same.
+
+- name: webForPhraseRead
+  kind: remote
+  operation: webSearch
+  records: "$.web.results[*]"
+  args:
+    q: "\"{keys}\""
+    count: 8
+    country: au
+  # The key is the BARE NAME, and the search variants are built around it in `q`. This is what
+  # makes `follow.match: "{key}"` work: the anchor term must be text that appears ON THE PAGE, and
+  # a search phrase ("Pamela Wall" with quotes, or `Pamela Wall owner shareholder`) never is. Keyed
+  # this way the term is `Pamela Wall`, which is exactly what the page says.
+  keyTemplate: "{key}"
+  echoKeyAs: searchPhrase
+  project:
+    url: url
+    title: title
+    snippet: description
+    age: age
+  # Read the top 3 results per phrase. Three phrases per donor is 9 searches and up to 9 page
+  # fetches — bounded by construction, and the ceiling is 5 pages whatever is written here.
+  follow:
+    urlField: url
+    into: content
+    maxPages: 3
+    excerptChars: 3000
+    match: "{key}"
+  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
+  cost:
+    bucket: "brave"
+    rate: "1/sec"
+    yield: medium

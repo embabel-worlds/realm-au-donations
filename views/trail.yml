@@ -57,11 +57,12 @@
     UNWIND ['"' + $entityName + '"',
             $entityName + ' owner shareholder',
             $entityName + ' ultimate holding company directors'] AS phrase
-    MATCH (q:CoverageQuery {phrase: phrase})-[:HAS_WEB_RESULT]->(w:WebHit)
+    MATCH (q:CoverageQuery {phrase: phrase})-[:HAS_READ_RESULT]->(h:DonorTrailHit)
     RETURN DISTINCT phrase AS attempt,
-           w.title   AS title,
-           w.url     AS url,
-           w.snippet AS snippet,
-           w.age     AS age
+           h.title   AS title,
+           h.url     AS url,
+           h.snippet AS snippet,
+           h.content AS excerpt,
+           h.age     AS age
     ORDER BY phrase
     LIMIT $limit

@@ -1,0 +1,66 @@
+# CROSS-REALM (realm-wikidata). Structured identity for a donor, from a source that publishes
+# IDENTIFIERS rather than prose.
+#
+# WHY THIS AND NOT MORE SEARCH. docs/CORPORATE_GROUPS.md sets the standard for asserting that
+# companies belong to one group: a filing per row, never a name similarity and never a scored
+# match. Wikidata is not a filing — but it is the right SHAPE: it publishes an Australian Business
+# Number (P3548) and an LEI (P1278), which are registry keys that can be checked against ABR and
+# ASIC, and it states ownership as explicit statements (P127 owner, P749 parent, P355 subsidiary)
+# with Q-ids rather than as sentences to be interpreted.
+#
+# So it earns its place as the CANDIDATE GENERATOR the standard asks for: it proposes an ABN, and
+# the ABN is what turns a guess into something a filing can confirm. It does not by itself justify
+# a donor_groups row.
+#
+# STILL A NAME MATCH AT THE FRONT DOOR. The lookup resolves a lodged name through Wikidata's entity
+# search, so `wdLabel` and `wdDescription` must be read against the name we asked with before
+# anything else on the record is believed — the same discipline as every other resolution here.
+
+- name: DonorWikidata
+  visibility: internal
+  description: >-
+    What Wikidata holds for a register donor: its canonical label, description, and the registry
+    identifiers that make further checking possible — Australian Business Number (P3548) and LEI
+    (P1278) — plus size, industry, country and chief executive where stated.
+
+    `abn` is the valuable field. The register itself carries an ABN for only a handful of donors,
+    and without one the gov-au integrity sources (ATO corporate tax transparency, ACNC, modern
+    slavery statements) cannot be reached at all. An ABN here is a KEY TO CHECK, not a fact
+    established: confirm it against ABN Lookup before using it to pull anything else.
+
+    `wdDescription` is the match audit. A one-line description that does not sound like the entity
+    on the return means the name matched something else, and every other field on the row is about
+    a different organisation.
+  properties:
+    wd:
+      metadata: { identity: "true" }
+    name: "The lodged name this was resolved FROM — the audit of the match."
+    wdLabel: "Wikidata's English label for the matched entity."
+    wdDescription: "Wikidata's one-line description — read this before believing the rest."
+    abn: "Australian Business Number (P3548). A key to check, not a fact established."
+    lei: "Legal Entity Identifier (P1278) — the global cross-registry key."
+    website: "Official website (P856) — a far stronger identifier than the name that matched."
+    employees: "Employee count (P1128) as published."
+    founded: "Inception date (P571). Compare with when the entity started giving."
+    industryLabel: "Industry (P452)."
+    countryLabel: "Country (P17)."
+    ceoLabel: "Chief executive (P169), current statement."
+  virtualJoins:
+    - anchorLabel: DonationEntity
+      relationship: HAS_WIKIDATA
+      keyField: name
+      recordKeyField: name
+      producer: wikidataOrgByName
+      maxAnchors: 25
+      description: >-
+        Structured identity for a register entity:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e)-[:HAS_WIKIDATA]->(w:DonorWikidata)`.
+    - anchorLabel: Counterparty
+      relationship: HAS_WIKIDATA
+      keyField: name
+      recordKeyField: name
+      producer: wikidataOrgByName
+      maxAnchors: 25
+      description: >-
+        Structured identity for a donation counterparty:
+        `MATCH (d:Donation)-[:DONATED_BY]->(c:Counterparty)-[:HAS_WIKIDATA]->(w:DonorWikidata)`.
