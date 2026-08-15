@@ -114,3 +114,47 @@
            s.which_families     AS whichFamilies
     ORDER BY s.families_paid DESC, s.paid_that_day DESC
     LIMIT $limit
+
+- name: FamilyBriefing
+  description: >-
+    A short written brief on who funded a political family, composed by an LLM from the register's
+    own rollup rows and NOTHING else. Use it to hand a reader the shape of a year's funding in
+    prose; use FamilyBackers when they need the figures to check.
+
+    IT DESCRIBES, IT DOES NOT INTERPRET, AND THE INSTRUCTION BELOW IS THE ONLY THING ENFORCING
+    THAT. Asked to explain "significance", the same aggregation over the same rows produced
+    "a strategy of targeted influence" and "suggests coordination" — from records containing
+    nothing but dates, amounts and party names. The grounding verifier did NOT catch it, and could
+    not: it checks whether facts are supported, and "suggests coordination" is not a fact claim.
+    A verifier catches an invented fact; nothing catches invented significance.
+
+    So the instruction forbids inference and gives the model somewhere to go instead — when
+    tempted to say a pattern suggests something, write the number underneath it. That division is
+    also the right one editorially: the machine reassembles what no one could read by hand, and a
+    person decides what it means and signs their name to it.
+
+    Numbers here are worth trusting only because they are checkable — the harness verifies a
+    generated brief against SQL, and every figure it states appears in FamilyBackers.
+  outputLabel: FamilyBriefingRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include."
+    limit:
+      type: int
+      default: 12
+      description: "How many donor rows to brief from — the largest by total."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    WITH b ORDER BY b.total DESC LIMIT $limit
+    WITH b.donor_name + ' disclosed $' + toString(b.total) + ' in ' + b.financial_year +
+         ' across ' + toString(b.branches) + ' separate party entities (' + b.branches_lodged +
+         ') in ' + toString(b.gifts) + ' gifts.' AS line
+    RETURN summarize(line,
+      'State ONLY what these records say: donor names, amounts, financial years, and how many separate party entities each donor gave to. Do NOT infer intent, strategy, coordination or influence; do not write what the pattern indicates, suggests, reveals or demonstrates. Where a donor gave to several separate entities, say so and give the count, because each entity lodges its own return and no single return shows that donor total. If you are tempted to write that something suggests anything, write the underlying number instead.'
+    ) AS briefing
