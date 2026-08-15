@@ -1,0 +1,279 @@
+[
+ {
+  "family": "Liberal Party of Australia",
+  "tiers": [
+   "ACT",
+   "NSW",
+   "QLD",
+   "SA",
+   "TAS",
+   "VIC",
+   "WA",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 357
+ },
+ {
+  "family": "Australian Labor Party",
+  "tiers": [
+   "ACT",
+   "NSW",
+   "NT",
+   "QLD",
+   "SA",
+   "TAS",
+   "VIC",
+   "WA",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 238
+ },
+ {
+  "family": "National Party of Australia",
+  "tiers": [
+   "NSW",
+   "VIC",
+   "WA",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 85
+ },
+ {
+  "family": "Australian Greens",
+  "tiers": [
+   "ACT",
+   "NSW",
+   "NT",
+   "QLD",
+   "SA",
+   "TAS",
+   "VIC",
+   "WA",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 52
+ },
+ {
+  "family": "Australian Democrats",
+  "tiers": [
+   "ACT",
+   "NSW",
+   "QLD",
+   "SA",
+   "TAS",
+   "VIC",
+   "WA",
+   "federal"
+  ],
+  "lodgers": 17
+ },
+ {
+  "family": "Liberal National Party of Queensland",
+  "tiers": [
+   "QLD",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 17
+ },
+ {
+  "family": "Pauline Hanson's One Nation",
+  "tiers": [
+   "NSW",
+   "QLD",
+   "SA",
+   "WA",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 17
+ },
+ {
+  "family": "Country Liberal Party (NT)",
+  "tiers": [
+   "NT",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 13
+ },
+ {
+  "family": "Christian Democratic Party",
+  "tiers": [
+   "NSW",
+   "QLD",
+   "WA",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 11
+ },
+ {
+  "family": "Climate 200",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 11
+ },
+ {
+  "family": "Advance Australia",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 8
+ },
+ {
+  "family": "Democratic Labour Party",
+  "tiers": [
+   "QLD",
+   "VIC",
+   "WA",
+   "federal"
+  ],
+  "lodgers": 8
+ },
+ {
+  "family": "Family First",
+  "tiers": [
+   "QLD",
+   "SA",
+   "VIC",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 8
+ },
+ {
+  "family": "Liberal Democratic Party",
+  "tiers": [
+   "ACT",
+   "NSW",
+   "QLD",
+   "VIC",
+   "WA",
+   "unspecified"
+  ],
+  "lodgers": 8
+ },
+ {
+  "family": "Citizens Electoral Council",
+  "tiers": [
+   "NSW",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 7
+ },
+ {
+  "family": "Katter's Australian Party",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 5
+ },
+ {
+  "family": "Australian Christians",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 3
+ },
+ {
+  "family": "Shooters, Fishers and Farmers",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 3
+ },
+ {
+  "family": "Socialist Alliance",
+  "tiers": [
+   "NSW",
+   "federal",
+   "unspecified"
+  ],
+  "lodgers": 3
+ },
+ {
+  "family": "Sustainable Australia",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 3
+ },
+ {
+  "family": "United Australia Party",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 3
+ },
+ {
+  "family": "Centre Alliance",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 2
+ },
+ {
+  "family": "Jacqui Lambie Network",
+  "tiers": [
+   "TAS",
+   "unspecified"
+  ],
+  "lodgers": 2
+ },
+ {
+  "family": "Legalise Cannabis",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 2
+ },
+ {
+  "family": "Palmer United Party",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 2
+ },
+ {
+  "family": "Animal Justice Party",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 1
+ },
+ {
+  "family": "Reason Party",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 1
+ },
+ {
+  "family": "Trumpet of Patriots",
+  "tiers": [
+   "unspecified"
+  ],
+  "lodgers": 1
+ },
+ {
+  "family": "Victorian Socialists",
+  "tiers": [
+   "VIC"
+  ],
+  "lodgers": 1
+ },
+ {
+  "family": "Western Australia Party",
+  "tiers": [
+   "WA"
+  ],
+  "lodgers": 1
+ }
+]

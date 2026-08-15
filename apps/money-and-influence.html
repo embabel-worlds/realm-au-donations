@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Money &amp; Influence — the AEC register, read across returns</title>
+  <link rel="stylesheet" href="money-and-influence.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Australian Electoral Commission · Transparency Register</div>
+    <h1>Money &amp; Influence</h1>
+    <p class="standfirst">Everything here is disclosed, and has been for years. It is disclosed across
+      2,073 lodger names and both sides of every gift, which is why nobody reads it. This puts it
+      back together.</p>
+
+    <div class="controls">
+      <div class="control">
+        <label for="family">Political family</label>
+        <select id="family" aria-label="Political family"></select>
+      </div>
+      <div class="control">
+        <label for="since">From financial year</label>
+        <select id="since" aria-label="Earliest financial year">
+          <option value="2024-25" selected>2024–25</option>
+          <option value="2023-24">2023–24</option>
+          <option value="2022-23">2022–23</option>
+          <option value="2021-22">2021–22</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="limit">Donors to show</label>
+        <select id="limit" aria-label="How many donors">
+          <option value="5">5</option>
+          <option value="8" selected>8</option>
+          <option value="12">12</option>
+          <option value="20">20</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <section class="block">
+    <h2>The size of it</h2>
+    <p class="blurb">What the family disclosed in the window, and how many hands it came from.</p>
+    <div id="scale"></div>
+  </section>
+
+  <section class="block">
+    <h2>Who funds it</h2>
+    <p class="blurb">One row per donor per year, every branch collapsed into a single figure —
+      the number that appears on no individual return. Select a donor to drill in.</p>
+    <div id="backers"></div>
+  </section>
+
+  <section class="block">
+    <h2>Money that reached several arms of the same party</h2>
+    <p class="blurb">Donors whose giving spanned three or more separate legal entities of this family.</p>
+    <div id="spread"></div>
+  </section>
+
+  <section class="block">
+    <h2>Who these donors are</h2>
+    <p class="blurb">The register names a legal lodger. This asks what public sources say that name is —
+      each statement attributed, each source graded by what kind of evidence it is.</p>
+    <div id="dossier"></div>
+  </section>
+
+  <section id="drill" hidden aria-live="polite">
+    <div class="drill-head">
+      <h3 id="drill-name"></h3>
+      <button id="drill-close" type="button">Close</button>
+    </div>
+    <div id="drill-body"></div>
+  </section>
+
+  <footer>
+    <p>Every figure is read live from this realm's views —
+      <code>PartyFundingScale</code>, <code>FamilyBackers</code>, <code>BranchSpreading</code>,
+      <code>PartyFundingDossier</code>, <code>DonorIdentity</code>, <code>SameDayGiving</code> and
+      <code>PartyFundingSources</code> — and nothing on this page is recomputed from them.</p>
+    <p>Family labels are <em>ours</em>, from the realm's committed mapping, not the AEC's: the register
+      names legal lodgers, and rolling divisions of one party together is a defensible analytical act
+      rather than a fact the Commission asserts. Every rollup shows the entities it spans so it can be
+      taken apart again. A disclosure is a sourced fact, never a finding.</p>
+  </footer>
+
+</div>
+<script src="money-and-influence.js"></script>
+</body>
+</html>
