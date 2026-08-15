@@ -610,3 +610,33 @@
            h.url        AS url,
            replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', '') AS text
     ORDER BY disclosedTotal DESC, donorAsLodged, url
+
+- name: PartyFundingScale
+  description: >-
+    The size of the picture a donor report sits inside: how many donors disclosed to a political
+    family in a window, what they gave in total, in how many gifts, and how far the widest-spread
+    donor reached across the family's separate legal entities.
+
+    A REPORT ON THE LARGEST DONORS IS MEANINGLESS WITHOUT IT. "X gave $5.26m" is a number a reader
+    cannot size: against a family total it is either most of the funding or a rounding error, and
+    only one of those is worth their attention. Read it beside PartyFundingDossier, which reports
+    the top handful — the pair is the fact and its proportion.
+
+    Store only, no external call, no model: plain arithmetic over the register's own rollup, so it
+    returns the same figures every time and every one of them can be checked against the returns.
+  outputLabel: PartyFundingScaleRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2024-25"
+      description: "Earliest financial year to include, as the register writes it."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    RETURN count(DISTINCT b.donor_name) AS donors,
+           sum(b.total)                 AS disclosedTotal,
+           sum(b.gifts)                 AS gifts,
+           max(b.branches)              AS mostEntitiesOneDonorReached
