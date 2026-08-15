@@ -95,6 +95,7 @@ CASES = [
     ("PartyFundingBriefing", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 6}),
     # The dossier and the evidence under it. Same args, or the corpus the gate checks against is
     # not the corpus the prose was composed from.
+    ("PartyFundingScale", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25"}),
     ("PartyFundingSources", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 4}),
     ("PartyFundingDossier", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 4}),
     # INVESTIGATIVE
