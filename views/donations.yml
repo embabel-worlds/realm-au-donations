@@ -1,0 +1,190 @@
+# The realm's answer surface. Everything a caller should need is here as a named, parameterized
+# view — raw Cypher over these types is for authoring new views, not for asking questions.
+#
+# TWO CONSTRAINTS SHAPE EVERY VIEW HERE, and both are properties of the source:
+#
+#  · The anchor is an EXACT disclosure name. The backing producer joins by key equality, so there
+#    is no fuzzy search: `entityName` must match what was lodged, and party branches are separate
+#    disclosers ("Liberal Party of Australia" ≠ "Liberal Party of Australia (Victorian Division)").
+#    Every view therefore reports the resolved entity so a caller can see WHICH record answered.
+#  · Financial years are the register's own strings ('2024-25'). They sort correctly as text
+#    within this century, which is what `sinceFy` relies on — cheaper and more honest than
+#    inventing date ranges the register does not publish.
+#
+# NARROW BEFORE THE NAME HOP. A line-level view sorts and LIMITs its donations FIRST, then
+# resolves counterparty names for the survivors — otherwise a party with 433 disclosed donations
+# resolves 433 names to display five rows. Cheap here (one batched query either way), but it is
+# the shape that keeps a view honest on a source where it would not be.
+#
+# These views report what entities DISCLOSED to the AEC. A disclosure is a sourced fact, never a
+# finding, and no view here totals across entities that merely share a name.
+
+- name: DonorProfile
+  description: >-
+    Who this register entity is, and the shape of its disclosed activity in one row: identifiers
+    (ABN/ACN where a return supplied them), how many donations it disclosed making and their
+    total, and the financial years it appears in. The orientation view — run it first to confirm
+    the name resolved to the record you meant before reading any number below it.
+  outputLabel: DonorProfileRow
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC, e.g. 'MINERALOGY PTY LTD'."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    OPTIONAL MATCH (e)-[:MADE_DONATION]->(d:Donation)
+    RETURN e.name                        AS entity,
+           e.abn                         AS abn,
+           e.acn                         AS acn,
+           count(d)                      AS donationsDisclosed,
+           sum(d.value)                  AS totalDisclosed,
+           min(d.financial_year)         AS firstYear,
+           max(d.financial_year)         AS lastYear
+
+- name: DonationsMade
+  description: >-
+    Every donation this entity disclosed MAKING, line by line, with the recipient's name — the
+    evidence behind any total. Ordered by value so the largest gifts read first. Dates are as
+    disclosed and may be absent on older returns; the financial year is always present.
+  outputLabel: DonationLine
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC."
+    sinceFy:
+      type: string
+      default: "1998-1999"
+      description: "Earliest financial year to include, as the register writes it (e.g. '2023-24'). Default includes everything."
+    limit:
+      type: int
+      default: 50
+      description: "Maximum lines to return."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:MADE_DONATION]->(d:Donation)
+    WHERE d.financial_year >= $sinceFy
+    WITH d ORDER BY d.value DESC, d.financial_year DESC LIMIT $limit
+    MATCH (d)-[:DONATED_TO]->(r:Counterparty)
+    RETURN d.financial_year   AS financialYear,
+           toString(d.made_on) AS madeOn,
+           d.value            AS value,
+           r.name             AS recipient
+    ORDER BY d.value DESC, d.financial_year DESC
+
+- name: TopRecipients
+  description: >-
+    Where this entity's disclosed money went, grouped by recipient and totalled — the answer to
+    "who does X fund?". Recipients are as named on the return, so party branches stay distinct
+    rather than being rolled up into a national party they are not.
+  outputLabel: RecipientTotal
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC."
+    sinceFy:
+      type: string
+      default: "1998-1999"
+      description: "Earliest financial year to include (e.g. '2023-24'). Default includes everything."
+    limit:
+      type: int
+      default: 20
+      description: "Maximum recipients to return."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:MADE_DONATION]->(d:Donation)
+    MATCH (d)-[:DONATED_TO]->(r:Counterparty)
+    WHERE d.financial_year >= $sinceFy
+    RETURN r.name       AS recipient,
+           sum(d.value) AS total,
+           count(d)     AS gifts,
+           min(d.financial_year) AS firstYear,
+           max(d.financial_year) AS lastYear
+    ORDER BY total DESC
+    LIMIT $limit
+
+- name: DonationsReceived
+  description: >-
+    Who disclosed giving money TO this entity — the mirror of DonationsMade, read from the
+    DONORS' returns rather than this entity's own. A party's own return and its donors' returns
+    are separate disclosures and need not agree; this view reports the donors' side.
+  outputLabel: DonorLine
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC, e.g. 'Australian Labor Party (ALP)'."
+    sinceFy:
+      type: string
+      default: "1998-1999"
+      description: "Earliest financial year to include (e.g. '2023-24'). Default includes everything."
+    limit:
+      type: int
+      default: 50
+      description: "Maximum lines to return."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:RECEIVED_DONATION]->(d:Donation)
+    WHERE d.financial_year >= $sinceFy
+    WITH d ORDER BY d.value DESC LIMIT $limit
+    MATCH (d)-[:DONATED_BY]->(donor:Counterparty)
+    RETURN donor.name       AS donor,
+           d.financial_year AS financialYear,
+           toString(d.made_on) AS madeOn,
+           d.value          AS value
+    ORDER BY d.value DESC
+
+- name: MoneyIn
+  description: >-
+    Receipts this entity disclosed RECEIVING, line by line with the payer — a wider surface than
+    donations: the register types each line (Donation Received / Subscription / Other Receipt),
+    and subscriptions and other receipts are NOT donations. Read `receiptType` before describing
+    any of it as a donation.
+  outputLabel: ReceiptLine
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC."
+    sinceFy:
+      type: string
+      default: "1998-1999"
+      description: "Earliest financial year to include (e.g. '2023-24'). Default includes everything."
+    limit:
+      type: int
+      default: 50
+      description: "Maximum lines to return."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:RECEIVED_MONEY]->(r:Receipt)
+    WHERE r.financial_year >= $sinceFy
+    RETURN r.financial_year AS financialYear,
+           r.receipt_type   AS receiptType,
+           r.value          AS value,
+           r.return_type    AS disclosedOn
+    ORDER BY r.value DESC
+    LIMIT $limit
+
+- name: YearSummary
+  description: >-
+    This entity's lodged returns year by year, with the totals it declared — receipts, payments,
+    debts, donations made and received. The summary envelope around the line-level views: use it
+    to see whether a year's detail lines account for the total the entity itself declared.
+  outputLabel: ReturnSummary
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged with the AEC."
+    limit:
+      type: int
+      default: 30
+      description: "Maximum returns (years) to list."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:LODGED_RETURN]->(ret:DisclosureReturn)
+    RETURN ret.financial_year           AS financialYear,
+           ret.return_type              AS returnType,
+           ret.total_receipts           AS totalReceipts,
+           ret.total_payments           AS totalPayments,
+           ret.total_debts              AS totalDebts,
+           ret.total_donations_made     AS totalDonationsMade,
+           ret.total_donations_received AS totalDonationsReceived
+    ORDER BY ret.financial_year DESC
+    LIMIT $limit

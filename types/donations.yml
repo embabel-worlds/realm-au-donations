@@ -159,6 +159,9 @@
   virtualJoins:
     - anchorLabel: Donation
       relationship: DONATED_TO
+      # Cost declaration: this hop is PK lookups against a local database, batched into one
+      # IN (...) per chunk, so anchor count is nearly free here — unlike a per-anchor API.
+      maxAnchors: 5000
       keyField: recipient_id
       recordKeyField: id
       producer: entitiesById
@@ -167,12 +170,18 @@
         `MATCH (d:Donation)-[:DONATED_TO]->(r:Counterparty) RETURN r.name, sum(d.value)`.
     - anchorLabel: Donation
       relationship: DONATED_BY
+      # Cost declaration: this hop is PK lookups against a local database, batched into one
+      # IN (...) per chunk, so anchor count is nearly free here — unlike a per-anchor API.
+      maxAnchors: 5000
       keyField: donor_id
       recordKeyField: id
       producer: entitiesById
       description: "Who made a donation: `MATCH (d:Donation)-[:DONATED_BY]->(donor:Counterparty)`."
     - anchorLabel: Receipt
       relationship: RECEIVED_FROM
+      # Cost declaration: this hop is PK lookups against a local database, batched into one
+      # IN (...) per chunk, so anchor count is nearly free here — unlike a per-anchor API.
+      maxAnchors: 5000
       keyField: payer_id
       recordKeyField: id
       producer: entitiesById
