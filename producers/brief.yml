@@ -1,0 +1,30 @@
+# The written brief: a fan-IN aggregation over the donor's OWN disclosure lines.
+#
+# The model sees ONLY the collected lines — disclosed amounts, recipients, dates — and is told to
+# compose from them alone. It is not asked what it knows about the company, because a brief that
+# mixes the register's facts with a model's recollection cannot be checked against the register,
+# which is the only thing that makes it worth having.
+- name: donorBrief
+  kind: aggregate
+  edgeType: HAS_BRIEF
+  identityField: anchorKey
+  anchorKeyField: anchorKey
+  collect:
+    anchorLabel: DonationEntity
+    via: MADE_DONATION
+    targetLabel: Donation
+    text: "{{ financial_year }}: ${{ value }}{% if made_on %} on {{ made_on }}{% endif %} to recipient #{{ recipient_id }}"
+  reduce:
+    using: synthesize
+    into: summary
+    args:
+      - >-
+        These are the political donations ONE entity disclosed making to the Australian Electoral
+        Commission, one line each. In about 120 words, describe the SHAPE of this giving: over what
+        years it runs, how it is distributed across years, the typical and largest amounts, and
+        whether it is concentrated or spread. State plainly if the giving stops, starts, or spikes
+        in a particular year.
+        Use ONLY these lines. Do not name or infer the entity, its industry, its owners or its
+        motives, and do not use anything you know about it from elsewhere — every sentence must be
+        checkable against the lines above. No preamble.
+  cache: { kind: ttl, seconds: 604800 }

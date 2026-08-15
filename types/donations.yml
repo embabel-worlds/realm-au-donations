@@ -23,7 +23,11 @@
   properties:
     id:
       metadata: { identity: "true" }
-    name: "Disclosure name, whitespace-normalized by the loader."
+    name:
+      description: "Disclosure name, whitespace-normalized by the loader. Party branches and spelling variants are SEPARATE disclosers."
+      # 42k values — this reports tooMany with a count, which is the honest answer to
+      # "which party should I ask about": you cannot pick one, there are 210 Labor variants alone.
+      values: { source: distinct }
     abn: "Australian Business Number, where a return supplied it."
     acn: "Australian Company Number, where a return supplied it."
   virtualJoins:
@@ -47,7 +51,9 @@
       metadata: { identity: "true" }
     donor_id: "FK to the donor DonationEntity."
     recipient_id: "FK to the recipient DonationEntity."
-    financial_year: "Financial year of the return (as published, e.g. 2024-25)."
+    financial_year:
+      description: "Financial year of the return (as published, e.g. 2024-25). Note the register changed format: older years read '2004-2005', newer ones '2024-25'."
+      values: { source: distinct }
     made_on: "Date of the donation, where disclosed."
     value: "Amount in AUD, as disclosed."
   virtualJoins:
@@ -77,7 +83,9 @@
     payer_id: "FK to the paying DonationEntity."
     financial_year: "Financial year of the return."
     return_type: "Which return type disclosed it."
-    receipt_type: "Donation Received / Subscription / Other Receipt, as disclosed."
+    receipt_type:
+      description: "Donation Received / Subscription / Other Receipt, as disclosed. A subscription is NOT a donation."
+      values: { source: distinct }
     value: "Amount in AUD, as disclosed."
   virtualJoins:
     - anchorLabel: DonationEntity
@@ -128,7 +136,9 @@
       metadata: { identity: "true" }
     entity_id: "FK to the lodging DonationEntity."
     financial_year: "Financial year of the return."
-    return_type: "Party / Donor / Associated Entity / Third Party / MP return."
+    return_type:
+      description: "Party / Donor / Associated Entity / Third Party / MP return."
+      values: { source: distinct }
     total_receipts: "Total receipts disclosed, AUD."
     total_payments: "Total payments (or total expenditure) disclosed, AUD."
     total_debts: "Total debts disclosed, AUD."

@@ -124,3 +124,21 @@
       debts:
         properties: [id, debtor_id, creditor_id, financial_year, amount, institution_type]
   cache: { kind: ttl, seconds: 86400 }
+
+# Both sides of the same gift, compared — a DATABASE VIEW, so the comparison is one indexed read
+# rather than a graph-side join over two materialized collections. Keyed on the recipient so a
+# question anchors on the party being asked about.
+- name: discrepanciesByRecipientId
+  kind: sql
+  datasource: au_donations
+  table: disclosure_discrepancies
+  keyColumn: recipient_id
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      disclosure_discrepancies:
+        properties: [discrepancy_key, recipient_id, donor_id, donor_name, recipient_name,
+                     financial_year, donor_says, recipient_says, gap, gap_size,
+                     donor_lines, recipient_lines]
+  cache: { kind: ttl, seconds: 86400 }

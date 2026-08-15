@@ -92,7 +92,12 @@ class Loader:
                     self.skipped += 1
                     continue
                 for key in ("ABN", "ACN"):
-                    v = (r.get(key) or "").strip()
+                    # DIGITS ONLY. The register writes ABNs both ways ('65010582680' and
+                    # '98 632 816 383'), and every register we join to — AusTender's supplier ABN,
+                    # the ABR bulk extract, Wikidata's P3548 — carries digits. Storing the spelling
+                    # the return happened to use makes an exact join fail for half the rows, which
+                    # reads as "this donor holds no contracts" rather than "the formats differ".
+                    v = re.sub(r"\D", "", (r.get(key) or ""))
                     if v:
                         (self.abn if key == "ABN" else self.acn).setdefault(eid, v)
                 self.returns.append((

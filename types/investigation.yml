@@ -1,0 +1,136 @@
+# The investigative surface: what the register can be asked that a person could not ask by hand.
+#
+# Two of these types are LOCAL (the discrepancy view is computed in the store, and costs nothing);
+# two are CROSS-REALM and named in their own file so their dependency is visible:
+#   · DonorRegistration needs realm-gov-au (the ABR bulk extract)
+#   · FirmLobbyist     needs realm-gov-au (the federal lobbyist register)
+# Without those realms the joins fail at fetch with "Unknown producer" and the rest still works.
+
+- name: DisclosureDiscrepancy
+  visibility: internal
+  description: >-
+    One gift where the two legally-separate disclosures of it DISAGREE: what the donor said it
+    gave, and what the recipient said it received, for the same pair in the same financial year.
+    Compared like for like (only 'Donation Received' receipts, never subscriptions or public
+    funding, which would manufacture huge fake gaps).
+
+    A GAP IS A LEAD, NEVER A FINDING. The two sides may legitimately split a gift across financial
+    years, attribute it to different branches of the same party, or treat in-kind support
+    differently. `donorLines`/`recipientLines` show how many entries each side lodged, which is
+    usually the first thing that explains a difference.
+  properties:
+    discrepancy_key:
+      metadata: { identity: "true" }
+    recipient_id: "FK of the recipient — the anchor this row is fetched BY, never its identity."
+    donor_id: "FK of the disclosing donor."
+    donor_name: "Donor as named on its own return."
+    recipient_name: "Recipient as named on its return."
+    financial_year: "The financial year both disclosures cover."
+    donor_says: "Total the DONOR disclosed giving, AUD."
+    recipient_says: "Total the RECIPIENT disclosed receiving from that donor, AUD."
+    gap: "donor_says − recipient_says. Positive = the donor claims more than the recipient booked."
+    gap_size: "Absolute size of the gap — what to sort by."
+    donor_lines: "How many donation lines the donor lodged for this pair/year."
+    recipient_lines: "How many receipt lines the recipient lodged. A different count often explains the gap."
+  virtualJoins:
+    - anchorLabel: DonationEntity
+      relationship: HAS_DISCREPANCY
+      keyField: id
+      recordKeyField: recipient_id
+      producer: discrepanciesByRecipientId
+      description: >-
+        Gifts to this entity where its own return disagrees with the donors':
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e)-[:HAS_DISCREPANCY]->(x)`.
+
+- name: DonorRegistration
+  visibility: internal
+  description: >-
+    CROSS-REALM (realm-gov-au). The donor's record in the Australian Business Register, matched by
+    ABN — carrying the date its current ABN status took effect, which for an active ABN is
+    effectively its registration date. That date beside a donation date answers the question a
+    journalist actually asks: was this entity incorporated shortly before it gave?
+
+    ONLY DONORS WHOSE RETURN CARRIED AN ABN can be checked at all — the register captures ABN on
+    third-party and significant-third-party returns and rarely elsewhere. For everyone else the
+    honest answer is "cannot check", never "nothing found".
+
+    COST: the backing extract is ~19M records across two ~500MB files, scanned per uncached key
+    batch. This is a SCREENING join for a handful of anchors with a warm cache, never a hot path.
+  properties:
+    abn:
+      metadata: { identity: "true" }
+    abnStatus: "ACT (active) or CAN (cancelled), as published."
+    abnStatusFrom: "Date the current status took effect (yyyymmdd) — the entity-age anchor."
+    entityType: "Entity type in the register's own words."
+    legalName: "Main registered name, for checking the ABN matched the company you meant."
+    otherNames: "Registered trading/business names, joined with ' | ' — the alias surface."
+    gstStatus: "GST registration status as published."
+  virtualJoins:
+    - anchorLabel: DonationEntity
+      relationship: REGISTERED_AS
+      keyField: abn
+      recordKeyField: abn
+      producer: abrByAbn
+      # Each anchor scans a 19M-record extract; keep the driving set tiny and batched.
+      maxAnchors: 25
+      description: >-
+        The donor's ABR record, for entity age and trading names:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e)-[:REGISTERED_AS]->(r:DonorRegistration)`.
+        Only resolves for entities whose return supplied an ABN.
+
+- name: FirmLobbyist
+  visibility: internal
+  description: >-
+    CROSS-REALM (realm-gov-au). A person a lobbying firm registers as lobbying on its behalf, with
+    the register's own FORMER-GOVERNMENT-REPRESENTATIVE declaration and the previous position.
+
+    Reported verbatim from the firm's declaration — never an inference, and never a
+    characterisation of the person. A former adviser now lobbying is lawful and disclosed; the
+    story, if there is one, is in the pattern, not the fact.
+
+    REACHED BY FIRM GUID ONLY. The federal register cannot be searched by client, so this cannot
+    currently be reached from a donor's name — see views/investigation.yml for what that costs.
+  properties:
+    lobbyistKey:
+      metadata: { identity: "true" }
+    firmId: "The employing firm's register GUID."
+    name: "The lobbyist's name as registered."
+    position: "Declared position at the firm."
+    isFormerRepresentative: "The register's declaration that this person formerly held a government position."
+    previousPosition: "Declared previous government position, where structured."
+    previousPositionOther: "Free-text previous role, where declared."
+    cessationDate: "When they declared leaving the government position (ISO)."
+  virtualJoins:
+    - anchorLabel: LobbyistOrg
+      relationship: REGISTERS_LOBBYIST
+      keyField: firmId
+      recordKeyField: firmId
+      producer: firmLobbyistsById
+      description: >-
+        A firm's registered lobbyists and their former-government declarations:
+        `MATCH (f:LobbyistOrg {firmId:'…'})-[:REGISTERS_LOBBYIST]->(l:FirmLobbyist)`.
+
+- name: DonorBrief
+  visibility: internal
+  description: >-
+    CROSS-REALM (realm-diffbot for the identification hop). A short, written brief on one donor,
+    composed by an LLM from the register's OWN disclosure lines — what it gave, to whom, over which
+    years — so a reader gets the shape of a donation history without reading 300 rows.
+
+    Composed from disclosed facts only, and never from the model's own knowledge of the company.
+    Anything the register does not say is not in the brief; anything the brief says should be
+    checkable against DonationsMade for the same entity.
+  properties:
+    anchorKey:
+      metadata: { identity: "true" }
+    summary: "The composed brief."
+  virtualJoins:
+    - anchorLabel: DonationEntity
+      relationship: HAS_BRIEF
+      keyField: id
+      recordKeyField: anchorKey
+      producer: donorBrief
+      maxAnchors: 5
+      description: >-
+        A written brief on this donor's disclosed giving:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e)-[:HAS_BRIEF]->(b:DonorBrief)`.

@@ -1,0 +1,207 @@
+# The investigative views: questions a person could not work out by hand across 229,000 rows.
+#
+# Every one of these produces a LEAD, not a finding. The register records what entities disclosed;
+# a gap between two disclosures, a company incorporated shortly before it gave, a former adviser on
+# a lobbying roll — each is a thing to check, and each has innocent explanations that the columns
+# are shaped to surface rather than hide.
+#
+# VERIFIED LIVE against the loaded register: DisclosureGaps, GroupGiving.
+#
+# CACHE GOTCHA, learned here: these producers cache records for a day. After changing the SQL view
+# or reloading the store, a key you queried BEFORE the change keeps returning the old records — a
+# view can look broken (0 rows) while the database plainly holds the data. Query a fresh key, or
+# drop the TTL while iterating.
+#
+# NOT YET VERIFIED — declared, loadable, and NOT proven to return rows. Treat as drafts:
+#   · ShellCompanyCheck  — needs realm-gov-au; its ABR extract is ~1GB on first touch, so it was
+#                          not exercised here. The join and the honesty rules are believed right;
+#                          the fetch is unproven.
+#   · LobbyingFirmRoll   — needs realm-gov-au AND a firm GUID. The federal register cannot be
+#                          searched by client, so this is not reachable from a donor name at all;
+#                          it is shipped for completeness, not as a working donor-anchored view.
+#   · DonorBriefing      — the aggregation returns no rows and no error. The collect reads the
+#                          disclosure lines out of the graph and appears not to see them even when
+#                          the view materialises them first. Under investigation; do not demo.
+#
+# Two views need realm-gov-au installed (ShellCompanyCheck, LobbyingFirmRoll) and one needs
+# realm-diffbot (GroupGiving). Without those realms they fail at fetch with "Unknown producer".
+
+- name: DisclosureGaps
+  description: >-
+    Gifts where the TWO legally-separate disclosures of the same money disagree — what the donor
+    said it gave against what the recipient said it received, for the same pair and financial year.
+    Needs no external source: both sides are in the register, and nobody reads 66,000 donation lines
+    against 126,000 receipt lines by hand.
+
+    Compared like for like — only 'Donation Received' receipts, never subscriptions or public
+    funding, which would manufacture enormous fake gaps. A GAP IS A LEAD: the two sides may split a
+    gift across financial years, attribute it to different branches of the same party, or treat
+    in-kind support differently. `donorLines` vs `recipientLines` is usually the first thing that
+    explains one, which is why both are columns rather than a hidden detail.
+  outputLabel: DisclosureGapRow
+  params:
+    entityName:
+      type: string
+      description: "Exact recipient name as lodged, e.g. 'Australian Labor Party (ALP)'."
+    minGap:
+      type: int
+      default: 10000
+      description: "Ignore gaps smaller than this many dollars."
+    limit:
+      type: int
+      default: 20
+      description: "Maximum rows."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:HAS_DISCREPANCY]->(x:DisclosureDiscrepancy)
+    WHERE x.gap_size >= $minGap
+    RETURN x.donor_name      AS donor,
+           x.financial_year  AS financialYear,
+           x.donor_says      AS donorSays,
+           x.recipient_says  AS recipientSays,
+           x.gap             AS gap,
+           x.donor_lines     AS donorLines,
+           x.recipient_lines AS recipientLines
+    ORDER BY x.gap_size DESC
+    LIMIT $limit
+
+- name: GroupGiving
+  description: >-
+    CROSS-REALM (realm-diffbot). A party's biggest disclosed donors ROLLED UP BY CORPORATE GROUP,
+    so giving spread across several companies with the same ultimate owner reads as one number
+    instead of several unremarkable ones. That fragmentation is exactly what per-entity reporting
+    hides, and it is a technique rather than an accident.
+
+    `donorsInGroup` and `donorNames` are the evidence: a group total is only as good as the
+    identifications behind it, and each of those is a SCORED NAME MATCH from an open knowledge
+    graph, not an identity the AEC asserts. A donor the graph cannot identify keeps its own
+    disclosed name as its group and is marked `identified: false` — it is still a disclosure and
+    must not vanish from a total.
+
+    ONE ROW PER DONOR, carrying its group — the caller (or the UI) sums by `groupName`.
+
+    TWO SHAPE RULES, both platform limitations rather than preferences, and both discovered by this
+    view refusing to run (embabel/me#855). After a PAID per-anchor hop you may NOT:
+      · aggregate (sum/count/collect), or
+      · ORDER BY a property of the enriched node — including an expression over it.
+    Either one defeats the planner's final anchor cut, which then plans the identification against
+    every counterparty in the party's history (186 for one major party) and refuses the query
+    outright. Order by a value carried from BEFORE the hop, and group in the caller.
+  outputLabel: GroupGivingRow
+  params:
+    partyName:
+      type: string
+      description: "Exact party name as lodged, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2023-24"
+      description: "Earliest financial year to include (e.g. '2024-25')."
+    limit:
+      type: int
+      default: 10
+      description: "How many donors to resolve. EACH COSTS a knowledge-graph entity export."
+  cypher: |
+    MATCH (q:DonationQuery {name: $partyName})-[:HAS_ENTITY]->(party:DonationEntity)
+    MATCH (party)-[:RECEIVED_DONATION]->(d:Donation)
+    WHERE d.financial_year >= $sinceFy
+    MATCH (d)-[:DONATED_BY]->(donor:Counterparty)
+    WITH donor, sum(d.value) AS donorTotal
+    ORDER BY donorTotal DESC LIMIT $limit
+    OPTIONAL MATCH (donor)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    RETURN donor.name AS donorAsDisclosed,
+           donorTotal AS disclosedTotal,
+           coalesce(o.ultimateParentName, o.parentCompanyName, o.name, donor.name) AS groupName,
+           o.name IS NOT NULL AS identified,
+           o.name             AS company,
+           o.ultimateParentName AS ultimateOwner,
+           o.nbOrigins        AS sourceCount
+    ORDER BY disclosedTotal DESC
+
+- name: ShellCompanyCheck
+  description: >-
+    CROSS-REALM (realm-gov-au). A donor's ABN record beside its disclosed giving: when the entity's
+    current ABN status took effect — for an active ABN, effectively its registration date — against
+    the years it gave. The question is "was this incorporated shortly before it started giving?",
+    which is a real red flag and equally often a boring one (a group restructures, an ABN is
+    re-issued).
+
+    ONLY DONORS WHOSE RETURN CARRIED AN ABN can be checked; the register captures it on third-party
+    returns and rarely elsewhere. `abn: null` means CANNOT CHECK — never "nothing found".
+
+    COST: the backing extract is ~19M records across two ~500MB files. First use downloads them;
+    treat this as a screening view over a handful of entities, not a scan.
+  outputLabel: ShellCheckRow
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged, e.g. 'Climate 200 Pty Limited'."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    OPTIONAL MATCH (e)-[:REGISTERED_AS]->(r:DonorRegistration)
+    OPTIONAL MATCH (e)-[:MADE_DONATION]->(d:Donation)
+    RETURN e.name              AS entity,
+           e.abn               AS abn,
+           r.legalName         AS abrLegalName,
+           r.abnStatus         AS abnStatus,
+           r.abnStatusFrom     AS abnStatusFrom,
+           r.entityType        AS entityType,
+           r.otherNames        AS tradingNames,
+           min(d.financial_year) AS firstGaveIn,
+           count(d)            AS donationsDisclosed,
+           sum(d.value)        AS totalDisclosed
+
+- name: LobbyingFirmRoll
+  description: >-
+    CROSS-REALM (realm-gov-au). A lobbying firm's registered lobbyists with the register's own
+    FORMER-GOVERNMENT-REPRESENTATIVE declarations — the revolving door as the register itself
+    records it, verbatim, never as an inference about any person.
+
+    REACHED BY FIRM GUID, not by client or donor name: the federal register cannot be searched by
+    client, so the link from "this company donates" to "this firm lobbies for it" is not available
+    as a join today. Find the GUID in the register index, then anchor here.
+  outputLabel: FirmLobbyistRow
+  params:
+    firmId:
+      type: string
+      description: "The firm's register GUID, from the federal lobbyist register index."
+    limit:
+      type: int
+      default: 50
+      description: "Maximum lobbyists to list."
+  cypher: |
+    MATCH (f:LobbyistOrg {firmId: $firmId})-[:REGISTERS_LOBBYIST]->(l:FirmLobbyist)
+    RETURN l.name                   AS lobbyist,
+           l.position               AS position,
+           l.isFormerRepresentative AS formerGovernmentRepresentative,
+           l.previousPosition       AS previousPosition,
+           l.previousPositionOther  AS previousPositionOther,
+           l.cessationDate          AS leftGovernmentOn
+    ORDER BY l.isFormerRepresentative DESC, l.name
+    LIMIT $limit
+
+- name: DonorBriefing
+  description: >-
+    A written brief on one donor's disclosed giving — years, distribution, typical and largest
+    amounts, and whether it is concentrated or spread — composed by an LLM from the register's OWN
+    disclosure lines and nothing else.
+
+    Deliberately says nothing about who the entity IS: no industry, no owners, no motive, and
+    nothing the model knows from elsewhere. A brief that mixes disclosures with recollection cannot
+    be checked against the register, and being checkable is the only reason to have it. Pair it
+    with DonationsMade for the same entity to verify every sentence.
+
+    The view TRAVERSES the donations before asking for the brief, and that is required rather than
+    decorative: the aggregation reads the disclosure lines out of the graph, so a query that asks
+    only for the brief gives the model nothing to compose from and returns silently empty.
+    `linesConsidered` is the count it actually saw.
+  outputLabel: DonorBriefRow
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged, e.g. 'MINERALOGY PTY LTD'."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:MADE_DONATION]->(d:Donation)
+    WITH e, count(d) AS linesConsidered
+    MATCH (e)-[:HAS_BRIEF]->(b:DonorBrief)
+    RETURN e.name AS entity, linesConsidered, b.summary AS brief

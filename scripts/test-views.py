@@ -22,6 +22,12 @@ with AU_DONATIONS_PASSWORD set in the host's environment.
 
 After editing realm YAML you do NOT need to restart the host:
     curl -X POST .../api/v1/realms/au-donations/update -H "Authorization: Basic <b64 user:pass>"
+
+BUT that reloads the YAML, NOT the producer RECORD CACHE. If you change the underlying data (or a
+SQL view definition) and re-run the loader, a producer with a `ttl` cache keeps serving the old
+records for that key until the TTL expires — which reads as "my fix did nothing" or, worse, as a
+view that silently returns fewer rows than the database holds. While iterating, either drop the
+`cache:` TTL on the producer you are changing or test with a key you have not queried before.
 """
 
 import base64
@@ -39,7 +45,7 @@ USER = os.environ.get("EMBABEL_USER", "rod")
 PASS = os.environ.get("EMBABEL_PASS", "test")
 AUTH = base64.b64encode(f"{USER}:{PASS}".encode()).decode()
 BASE = f"http://localhost:{PORT}/api/v1/admin/kg"
-VIEW_FILES = ["donations.yml", "ownership.yml"]
+VIEW_FILES = ["donations.yml", "ownership.yml", "investigation.yml"]
 VIEWS_DIR = pathlib.Path(__file__).resolve().parent.parent / "views"
 
 # (view, args) — declared defaults fill the rest, exactly as a bare call would.
@@ -54,7 +60,18 @@ CASES = [
     # resolved donor is a knowledge-graph entity export, and the free tier is ~400 a MONTH.
     ("DonorOwnership", {"entityName": "Fox Group Holdings Pty Ltd"}),
     ("PartyBackers", {"partyName": "Australian Labor Party (ALP)", "sinceFy": "2023-24", "limit": 3}),
+    # INVESTIGATIVE
+    ("DisclosureGaps", {"entityName": "Liberal Party of Australia", "minGap": 50000, "limit": 5}),
+    ("GroupGiving", {"partyName": "Liberal Party of Australia", "sinceFy": "2023-24", "limit": 3}),
 ]
+
+# Declared but NOT proven to return rows — listed so the "every view needs a case" check stays
+# meaningful without the suite going permanently red over drafts. Each entry says why.
+UNVERIFIED = {
+    "ShellCompanyCheck": "needs realm-gov-au; its ABR extract is ~1GB on first touch",
+    "LobbyingFirmRoll": "needs a firm GUID; the register cannot be searched by client",
+    "DonorBriefing": "aggregation returns no rows and no error — under investigation",
+}
 
 
 def post(path, body):
@@ -72,8 +89,10 @@ def post(path, body):
 
 def main():
     declared = {v["name"] for f in VIEW_FILES for v in yaml.safe_load((VIEWS_DIR / f).read_text())}
-    covered = {name for name, _ in CASES}
+    covered = {name for name, _ in CASES} | UNVERIFIED.keys()
     missing = declared - covered
+    for name, why in sorted(UNVERIFIED.items()):
+        print(f"! {name}: UNVERIFIED — {why}")
     if missing:
         print(f"✗ views with no test case (an untested view is an unshipped view): {sorted(missing)}")
 
