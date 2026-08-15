@@ -66,6 +66,11 @@ CASES = [
     # Needs realm-gov-au + BRAVE_API_KEY. Three searches per call; zero rows means the SEARCH did
     # not run (realm or key missing), not that the donor has no trail.
     ("DonorTrail", {"entityName": "ORYXIUM PTY LIMITED", "limit": 9}),
+    # FAMILIES — store only, no credentials. If these return 0 rows the party_families mapping
+    # was not loaded (regenerate with scripts/build-party-families.py, then re-run the loader).
+    ("FamilyBackers", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 5}),
+    ("BranchSpreading", {"familyName": "Australian Labor Party", "sinceFy": "2023-24", "minBranches": 5, "limit": 5}),
+    ("SameDayGiving", {"entityName": "Minerals Council of Australia", "limit": 5}),
     # INVESTIGATIVE
     ("DisclosureGaps", {"entityName": "Liberal Party of Australia", "minGap": 50000, "limit": 5}),
     ("GroupGiving", {"partyName": "Liberal Party of Australia", "sinceFy": "2023-24", "limit": 3}),

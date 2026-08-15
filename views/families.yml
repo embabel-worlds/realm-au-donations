@@ -1,0 +1,116 @@
+# Family-level views. Needs nothing but this realm's own store — no credentials, no external call.
+#
+# These answer the questions the register is shaped to prevent. Not by holding anything back:
+# every figure here is disclosed, and has been for years. But it is disclosed ACROSS 2,073 lodger
+# names and both sides of every gift, and a reader with one return in front of them cannot put it
+# back together. That reassembly is the entire contribution.
+
+- name: FamilyBackers
+  description: >-
+    Who funds a political family, with every branch collapsed into one figure per donor per year.
+    The question "who funds the Liberals" has no answer in the raw register — it has 40-odd
+    answers, one per lodging division, each individually unremarkable.
+
+    READ `branches` BEFORE READING THE TOTAL. A total spanning eight legal entities is a different
+    fact from one cheque, and `branchesLodged` names them so the rollup can be taken apart. High
+    branch counts are the interesting rows: a union that gave to eight ALP branches put a modest
+    number on eight separate returns.
+
+    Family labels are OURS (sql/party_families.sql), not the AEC's — pass a family label like
+    'Liberal Party of Australia', never a branch name as lodged. Donor names are NOT canonicalized
+    and never will be by this view: there is no closed list of donors, so the same company may
+    appear under several spellings. Use DonorTrail when a donor's identity is the question.
+  outputLabel: FamilyBackerRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Liberal Party of Australia', 'Australian Labor Party', 'Australian Greens'."
+    sinceFy:
+      type: string
+      default: "2023-24"
+      description: "Earliest financial year to include, as the register writes it."
+    limit:
+      type: int
+      default: 20
+      description: "Maximum rows."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy
+    RETURN b.donor_name      AS donor,
+           b.financial_year  AS financialYear,
+           b.total           AS total,
+           b.gifts           AS gifts,
+           b.branches        AS branches,
+           b.branches_lodged AS branchesLodged,
+           b.tiers           AS tiers
+    ORDER BY b.total DESC
+    LIMIT $limit
+
+- name: BranchSpreading
+  description: >-
+    The same data, ordered by how many separate legal entities of one family a donor's money
+    reached — the rows where a per-return reading understates most. Nothing here is irregular:
+    parties lodge as separate divisions and a donor may deal with each. But a figure split eight
+    ways is eight modest disclosures and one large one, and only the second is the fact.
+
+    Use it to find the donors worth a closer look, then FamilyBackers or DonationsMade for detail.
+  outputLabel: BranchSpreadRow
+  params:
+    familyName:
+      type: string
+      description: "Family label, e.g. 'Australian Labor Party'."
+    sinceFy:
+      type: string
+      default: "2022-23"
+      description: "Earliest financial year to include."
+    minBranches:
+      type: int
+      default: 4
+      description: "Only donors whose money reached at least this many separate entities."
+    limit:
+      type: int
+      default: 15
+      description: "Maximum rows."
+  cypher: |
+    MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]->(b:FamilyBacker)
+    WHERE b.financial_year >= $sinceFy AND b.branches >= $minBranches
+    RETURN b.donor_name      AS donor,
+           b.financial_year  AS financialYear,
+           b.branches        AS branches,
+           b.total           AS total,
+           b.branches_lodged AS branchesLodged
+    ORDER BY b.branches DESC, b.total DESC
+    LIMIT $limit
+
+- name: SameDayGiving
+  description: >-
+    Days on which one donor paid SEVERAL political families at once. Each party sees only its own
+    payment, so this pattern exists in no single return.
+
+    STATE THE INNOCENT READING FIRST, because it is usually the right one. Paying several parties
+    is ordinary access buying and is disclosed exactly as required; `madeOn` is the date the DONOR
+    recorded, so four payments sharing a date may be one batch run by a finance team rather than a
+    decision taken that morning. A single date proves nothing.
+
+    What a batch run does not explain is a habit. Ask this view for several years of one donor and
+    read the pattern, not the day — a body that pays four or five families every year, including
+    crossbench parties whose votes decide legislation, is doing something a one-off batch is not.
+  outputLabel: SameDayRow
+  params:
+    entityName:
+      type: string
+      description: "Donor exactly as lodged, e.g. 'Minerals Council of Australia'."
+    limit:
+      type: int
+      default: 20
+      description: "Maximum days to list."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:PAID_MANY_ON_A_DAY]->(s:SameDayGiving)
+    RETURN toString(s.made_on)  AS madeOn,
+           s.financial_year     AS financialYear,
+           s.families_paid      AS familiesPaid,
+           s.paid_that_day      AS paidThatDay,
+           s.which_families     AS whichFamilies
+    ORDER BY s.families_paid DESC, s.paid_that_day DESC
+    LIMIT $limit

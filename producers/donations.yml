@@ -142,3 +142,36 @@
                      financial_year, donor_says, recipient_says, gap, gap_size,
                      donor_lines, recipient_lines]
   cache: { kind: ttl, seconds: 86400 }
+
+# ── Political families ─────────────────────────────────────────────────────────────────────────
+# Both read views defined in sql/schema.sql over the party_families mapping. Keyed by a NAME
+# rather than an entity id, because the whole point is that a family is not an entity — it is the
+# thing 890 lodged names add up to.
+
+- name: familyBackersByFamily
+  kind: sql
+  datasource: au_donations
+  table: family_backers
+  keyColumn: family
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      family_backers:
+        properties: [backer_key, family, family_mapped, financial_year, donor_name, total,
+                     gifts, branches, branches_lodged, tiers, first_gift, last_gift]
+  cache: { kind: ttl, seconds: 86400 }
+
+- name: sameDayByDonor
+  kind: sql
+  datasource: au_donations
+  table: same_day_multi_party
+  keyColumn: donor_name
+  dialect: postgresql
+  governance:
+    mode: open
+    expose:
+      same_day_multi_party:
+        properties: [same_day_key, donor_name, made_on, financial_year,
+                     families_paid, paid_that_day, which_families]
+  cache: { kind: ttl, seconds: 86400 }

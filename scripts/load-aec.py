@@ -201,6 +201,15 @@ def main() -> int:
     script.write(copy_block("debts",
                             ["debtor_id", "creditor_id", "financial_year", "amount", "institution_type"],
                             loader.debts))
+    # The lodged-name → political-family mapping, if it has been generated. Loaded AFTER the data
+    # so a fresh database is complete in one pass. Absent is not fatal: every view left-joins it,
+    # so without it families simply read as unmapped rather than the load failing.
+    families = Path(__file__).resolve().parent.parent / "sql" / "party_families.sql"
+    if families.exists():
+        script.write(families.read_text())
+    else:
+        print("note: sql/party_families.sql not generated — families will read as unmapped")
+
     script.write("SELECT setval('entities_id_seq', (SELECT max(id) FROM entities));\nANALYZE;\n")
 
     print(f"loading via: {' '.join(psql[:4])} …", flush=True)

@@ -1,0 +1,97 @@
+# Political FAMILIES — the join surface that makes "who funds party X" answerable.
+#
+# The register names LEGAL LODGERS, not organisations. 2,073 distinct recipient names stand for a
+# few dozen political interests, and the variants are not cosmetic: 'Climate 200 Pty Ltd' and
+# 'Climate 200 Pty Limited' hold $19.75m and $10.35m; two spellings of the WA Liberals differ by a
+# full stop and $6.25m; $3.05m sits under the bare code 'ALP-FED'. Reading any single name
+# understates the truth, and no amount of care with one return fixes that.
+#
+# THE MAPPING IS DATA, NOT INFERENCE. sql/party_families.sql is generated once by
+# scripts/build-party-families.py and committed, so every lodged-name → family decision is a line
+# a reader can challenge in a diff. Nothing is classified at query time — not by pattern, and
+# certainly not by a model. A rollup produces a number that goes in print; it has to give the same
+# answer tomorrow, and it has to be arguable.
+#
+# ROLLING UP IS AN EDITORIAL ACT. Federal and state divisions are separate legal entities with
+# separate disclosure obligations and sometimes separate decisions. Summing them is defensible
+# analysis, not a fact the AEC asserts — which is why every row here carries `branches` and
+# `branchesLodged`, so the sum can always be taken apart again.
+
+- name: PartyFamilyQuery
+  visibility: internal
+  description: >-
+    A political family pinned by name — the anchor behind "who funds X". Family labels are OURS,
+    from sql/party_families.sql, not the register's: use the family label ('Liberal Party of
+    Australia', 'Australian Labor Party', 'Australian Greens'), never a branch name as lodged.
+  properties:
+    name:
+      metadata: { identity: "true" }
+
+- name: FamilyBacker
+  visibility: internal
+  description: >-
+    One donor's giving to one political family in one financial year, with every branch it
+    actually went to collapsed into a single figure. This is the number a per-return reading
+    cannot produce: a union giving to eight separate ALP branches shows a modest amount on each
+    return and $813,800 here.
+
+    HONESTY COLUMNS, and they are not decoration. `branches` counts the separate legal entities
+    the money reached and `branchesLodged` names them, so a reader can see that a family total
+    spans distinct disclosers. `tiers` shows whether it crossed federal and state arms.
+    `familyMapped` is false when the recipient is NOT in the mapping — its money still appears,
+    under its own lodged name, because dropping unmapped recipients would shrink every total
+    invisibly.
+  properties:
+    backer_key:
+      metadata: { identity: "true" }
+    family: "The political family — our label, or the lodged name where unmapped."
+    family_mapped: "False when this recipient is not in the mapping; the row is still real money."
+    financial_year: "Financial year as the register writes it."
+    donor_name: "Donor exactly as lodged. Donor names are NOT canonicalized — see DonorTrail."
+    total: "Sum given to this family in this year, AUD."
+    gifts: "How many separate disclosed gifts."
+    branches: "How many DISTINCT legal entities of the family received money. 1 means one lodger."
+    branches_lodged: "Those entities, named as lodged — the audit of the rollup."
+    tiers: "Which arms the money reached: federal, a state/territory code, or unspecified."
+    first_gift: "Earliest disclosed date in the year, where dates were disclosed."
+    last_gift: "Latest disclosed date."
+  virtualJoins:
+    - anchorLabel: PartyFamilyQuery
+      relationship: HAS_BACKER
+      keyField: name
+      recordKeyField: family
+      producer: familyBackersByFamily
+      description: >-
+        Who funds a political family, branches collapsed:
+        `MATCH (f:PartyFamilyQuery {name:'…'})-[:HAS_BACKER]->(b:FamilyBacker)`.
+
+- name: SameDayGiving
+  visibility: internal
+  description: >-
+    One day on which a donor paid MORE THAN ONE political family. Invisible in any single return
+    by construction — each party sees only its own cheque — and computed here across both sides
+    of the register.
+
+    NOT WRONGDOING, AND THE VIEW MUST NOT IMPLY IT IS. Paying several parties is ordinary access
+    buying, usually disclosed exactly as required, and `made_on` is the date the DONOR recorded:
+    four payments sharing a date may be one batch run by a finance team rather than a coordinated
+    decision. What a single date cannot explain is a pattern sustained over years — that is what
+    makes this worth computing, and the reader needs both facts to judge it.
+  properties:
+    same_day_key:
+      metadata: { identity: "true" }
+    donor_name: "Donor exactly as lodged."
+    made_on: "The date the donor recorded. May be an administrative date, not a decision date."
+    financial_year: "Financial year of the gifts."
+    families_paid: "How many DISTINCT political families were paid on that one day."
+    paid_that_day: "Total disclosed across those payments, AUD."
+    which_families: "The families paid — unmapped recipients appear under their lodged name."
+  virtualJoins:
+    - anchorLabel: DonationEntity
+      relationship: PAID_MANY_ON_A_DAY
+      keyField: name
+      recordKeyField: donor_name
+      producer: sameDayByDonor
+      description: >-
+        Days on which one donor paid several families:
+        `MATCH (q:DonationQuery {name:'…'})-[:HAS_ENTITY]->(e)-[:PAID_MANY_ON_A_DAY]->(s:SameDayGiving)`.
