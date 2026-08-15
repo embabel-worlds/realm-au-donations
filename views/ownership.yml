@@ -9,6 +9,76 @@
 # Each resolved donor costs one knowledge-graph entity export, so every view here is LIMITed by
 # construction and resolves owners only for the rows it will actually show.
 
+- name: LargestGiftsWithOwners
+  description: >-
+    A party's biggest INDIVIDUAL gifts — each with its date and amount exactly as lodged — beside
+    the corporate group behind the donor. PartyBackers answers "who are this party's biggest
+    donors"; this answers "what were the biggest single gifts, and who controls whoever wrote each
+    cheque". The dates matter: a single large gift dated days before a campaign event reads very
+    differently from the same money spread across a year, and an aggregate hides that entirely.
+
+    The same two honesty rules as every view here. The gift figures and dates are DISCLOSURES,
+    exact as lodged. The company identification is a scored NAME MATCH — read `resolvedFrom`
+    against `company` and treat a mismatch as a wrong match, not a finding; `sourceCount` says how
+    thin the evidence is.
+
+    A donor the knowledge graph cannot identify STILL APPEARS with its gift intact and empty
+    company columns. Unions, industry associations and private holding companies frequently have
+    no public corporate record, and dropping those rows would present the identifiable subset as
+    if it were the whole picture.
+
+    EXPECT MOST ROWS TO BE UNIDENTIFIED, and do not read that as a broken join. Measured live:
+    8 gifts, 6 distinct donors, 1 identified. The cause is that the register's key is the LODGED
+    LEGAL NAME and the knowledge graph's key is its own canonical name — 'Meriton' resolves with
+    90 sources, 'Meriton Properties' and 'Meriton Properties Pty Ltd' both resolve to nothing.
+    Stripping 'Pty Ltd' is therefore NOT the fix; matching legal names to canonical company names
+    needs a real identifier (an ABN lookup) rather than a better string. When a row comes back
+    unidentified, DonorTrail (views/trail.yml) is the instrument that works on it — a web index
+    holds the filings and reporting that a corporate knowledge graph has no record of.
+
+    SHAPE RULES, both platform limitations rather than preferences (embabel/me#855). The donor
+    match sits ABOVE the LIMIT so the paid hop follows `WITH … LIMIT` directly — otherwise the
+    planner's final anchor cut misses it and plans one entity export per counterparty in the
+    party's entire history (186 for a major party), refusing the query outright. And the final
+    ORDER BY must use a value carried from BEFORE the hop: ordering on a property of the enriched
+    node defeats the same cut, as does any aggregation after it.
+
+    COST is per DISTINCT donor, not per row: the biggest gifts often come from the same few
+    donors, so `limit` gifts is usually fewer than `limit` exports.
+  outputLabel: LargestGiftRow
+  params:
+    entityName:
+      type: string
+      description: "Exact recipient name as lodged with the AEC, e.g. 'Liberal Party of Australia'."
+    sinceFy:
+      type: string
+      default: "2023-24"
+      description: "Earliest financial year to include, as the register writes it (e.g. '2024-25')."
+    limit:
+      type: int
+      default: 10
+      description: "How many gifts to show. Each DISTINCT donor among them costs a knowledge-graph entity export."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:RECEIVED_DONATION]->(d:Donation)
+    WHERE d.financial_year >= $sinceFy
+    MATCH (d)-[:DONATED_BY]->(donor:Counterparty)
+    WITH d, donor ORDER BY d.value DESC LIMIT $limit
+    OPTIONAL MATCH (donor)-[:RESOLVES_TO_COMPANY]->(o:DonorOwner)
+    RETURN donor.name           AS donorAsDisclosed,
+           d.financial_year     AS financialYear,
+           toString(d.made_on)  AS madeOn,
+           d.value              AS value,
+           o.ownerMatchedFor    AS resolvedFrom,
+           o.name               AS company,
+           o.parentCompanyName  AS parent,
+           o.ultimateParentName AS ultimateOwner,
+           o.ceoName            AS runBy,
+           o.industries         AS industries,
+           o.country            AS country,
+           o.nbOrigins          AS sourceCount
+    ORDER BY value DESC
+
 - name: PartyBackers
   description: >-
     Who is really behind a party's biggest disclosed donations: the largest donors from the DONORS'

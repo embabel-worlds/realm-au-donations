@@ -60,6 +60,12 @@ CASES = [
     # resolved donor is a knowledge-graph entity export, and the free tier is ~400 a MONTH.
     ("DonorOwnership", {"entityName": "Fox Group Holdings Pty Ltd"}),
     ("PartyBackers", {"partyName": "Australian Labor Party (ALP)", "sinceFy": "2023-24", "limit": 3}),
+    # Rows are gifts, not donors, so this asserts the ROWS come back — most of them will have empty
+    # company columns, and that is the correct answer rather than a failure (see below).
+    ("LargestGiftsWithOwners", {"entityName": "Liberal Party of Australia", "sinceFy": "2023-24", "limit": 3}),
+    # Needs realm-gov-au + BRAVE_API_KEY. Three searches per call; zero rows means the SEARCH did
+    # not run (realm or key missing), not that the donor has no trail.
+    ("DonorTrail", {"entityName": "ORYXIUM PTY LIMITED", "limit": 9}),
     # INVESTIGATIVE
     ("DisclosureGaps", {"entityName": "Liberal Party of Australia", "minGap": 50000, "limit": 5}),
     ("GroupGiving", {"partyName": "Liberal Party of Australia", "sinceFy": "2023-24", "limit": 3}),

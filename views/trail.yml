@@ -1,0 +1,67 @@
+# CROSS-REALM — needs realm-gov-au installed (for its `webForPhrase` producer and `WebHit` type)
+# and BRAVE_API_KEY in the world. Without either, this view yields nothing, which means THE SEARCH
+# DID NOT RUN — never "nothing was found".
+#
+# WHY IT EXISTS: the corporate-ownership hop in ownership.yml identifies only a minority of donors,
+# and the failure is systematic rather than incidental. The register's key is the LODGED LEGAL NAME
+# and a corporate knowledge graph's key is its own canonical name, so a private holding vehicle
+# lodging as 'ORYXIUM PTY LIMITED' resolves to nothing at all — while the same string in a web
+# index returns ASX filings, an LEI record, and reporting naming the family behind it. For exactly
+# the donors that matter most — the ones with no public corporate record — search is the instrument
+# that works and enrichment is the one that doesn't.
+#
+# WHAT THIS IS NOT. A search hit is NOT an ownership fact, and nothing here is written into the
+# graph as one. The view returns titles, URLs and index snippets VERBATIM, several attempts at a
+# time, so a reader opens the sources and judges them. It does not summarise, rank by credibility,
+# or let a model assert who owns whom — an LLM composing "ORYXIUM is Westfield" from these snippets
+# would produce a sentence no one can check, which is the opposite of the point. A self-published
+# blog and an ASIC filing arrive as equals here; telling them apart is the reader's job and the
+# URL is what makes it possible.
+
+- name: DonorTrail
+  description: >-
+    THREE web searches for one donor name, returned verbatim as evidence — the trail on a company
+    the register names but cannot explain. Use it when PartyBackers or LargestGiftsWithOwners
+    leaves the company columns empty, which for private Australian holding companies is the normal
+    outcome rather than a fault.
+
+    Three attempts, because one is not a search strategy. The exact-phrase attempt finds registry
+    and filing records (ASX substantial-holder forms, LEI entries, ABN Lookup); the ownership
+    attempt finds who is said to be behind it; the holding-company attempt finds the chain above
+    it. Each row carries the `attempt` that produced it, so a reader can see which question the
+    result actually answered — a hit on 'X owner shareholder' matched those words, not a claim
+    that anyone verified ownership.
+
+    EVERY ROW IS A LEAD WITH A LINK, NOT A FINDING. The index cannot fabricate a result, but it
+    also cannot vouch for one: a name in a snippet establishes only that the name appears on that
+    page. Open the URL before repeating anything. Sources arrive unranked and unfiltered by
+    credibility on purpose — a primary filing and a partisan blog are told apart by a human.
+
+    ANCHORED ON THE NAME AS LODGED, not on a register entity: the interesting donors appear only
+    as counterparties on somebody else's return and have lodged nothing themselves, so requiring
+    them to be a discloser would exclude precisely the cases this view exists for.
+
+    COST: three web searches per call, rate-limited to about one a second and cached for six
+    hours. Cheap next to a knowledge-graph entity export, which is why three attempts are
+    affordable here and would not be there.
+  outputLabel: DonorTrailRow
+  params:
+    entityName:
+      type: string
+      description: "The donor name exactly as it appears on the return, e.g. 'ORYXIUM PTY LIMITED'."
+    limit:
+      type: int
+      default: 18
+      description: "Maximum results across all three attempts."
+  cypher: |
+    UNWIND ['"' + $entityName + '"',
+            $entityName + ' owner shareholder',
+            $entityName + ' ultimate holding company directors'] AS phrase
+    MATCH (q:CoverageQuery {phrase: phrase})-[:HAS_WEB_RESULT]->(w:WebHit)
+    RETURN DISTINCT phrase AS attempt,
+           w.title   AS title,
+           w.url     AS url,
+           w.snippet AS snippet,
+           w.age     AS age
+    ORDER BY phrase
+    LIMIT $limit
