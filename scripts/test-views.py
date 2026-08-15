@@ -341,6 +341,8 @@ DOMAIN_WORDS = {
     "separate", "entities", "entity", "party", "parties", "available", "details", "detailed",
     "classified", "listed", "registered", "registration", "incorporated", "documented",
     "documents", "document", "titled", "paying", "pays", "pay", "paid",
+    "citing", "cites", "cited", "explains", "explaining", "specify", "specifies",
+    "specifically", "issued", "issues", "beyond", "under", "per",
     "multiple", "different", "differ", "differs", "range", "ranges", "ranging", "vary", "varies",
     "varying", "spanning", "spread", "split", "distributed", "single", "largest", "previous",
     "earlier", "later", "involve", "involved", "involves", "found", "turn",

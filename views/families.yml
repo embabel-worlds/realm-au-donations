@@ -510,6 +510,20 @@
     // The kind is folded into the collected map rather than projected in its own WITH, and nothing
     // orders on a fetched property — after a paid per-anchor hop both defeat the planner, and the
     // failure surfaces as an unrelated "unknown function" rather than as a refusal.
+    // EVIDENCE GRADE DECIDES WHAT A READER SEES FIRST. A substantial-holder notice lodged under law
+    // and a company profile page arrive from a search engine in popularity order, which is not the
+    // order that helps anyone weigh a claim about who funds a political party. Ranked here, so the
+    // three sources kept per donor are the three strongest available rather than the three most
+    // popular. (This was believed impossible for several days: ordering on a fetched property
+    // appeared to be refused by the planner. It was not — see embabel/me#871.)
+    WITH b, searchName, h,
+         CASE
+           WHEN h.url =~ '(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*' THEN 1
+           WHEN h.url =~ '(?i).*\\.gov\\.au.*'                     THEN 2
+           WHEN h.url =~ '(?i).*wikipedia\\.org.*'                 THEN 4
+           ELSE 3
+         END AS grade
+    ORDER BY b.total DESC, b.donor_name, grade
     WITH b, searchName,
          collect(CASE WHEN h.url IS NULL THEN null ELSE {
            kind: CASE
@@ -526,12 +540,6 @@
            // carries the sentence that identifies the donor, which is all this needs.
            text: left(replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', ''), 700)
          } END)[0..3] AS srcs
-    // NOT RANKED BY EVIDENCE GRADE, and not for want of trying. A filing lodged under law should
-    // reach the reader before a profile page, but the engine refuses BOTH ways of saying so after a
-    // per-anchor hop: ORDER BY on a fetched property, and list comprehensions over the collected
-    // rows. Each fails as `Unknown function 'render'` — an error about a different clause. See
-    // embabel/me#869. Until that lifts, the composer is told which kinds to prefer, and the
-    // `sourceKind` column lets a reader grade what they are shown.
     WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, srcs,
          b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
          b.financial_year + ', in ' + toString(b.gifts) + ' gifts' +
