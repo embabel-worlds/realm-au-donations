@@ -64,3 +64,42 @@
       description: >-
         Structured identity for a donation counterparty:
         `MATCH (d:Donation)-[:DONATED_BY]->(c:Counterparty)-[:HAS_WIKIDATA]->(w:DonorWikidata)`.
+
+- name: DonorGroupLink
+  visibility: internal
+  description: >-
+    One STATED ownership relationship for a donor's Wikidata entity: its parent (P749), its owner
+    (P127), a subsidiary (P355), or a company it owns. The corporate group as a graph rather than a
+    sentence — each link carries the counterparty's own entity IRI, so the chain can be walked and
+    every step is addressable.
+
+    THE TIER MATTERS AND IS THE POINT. This is a STRUCTURED ASSERTION: it ranks above a scored
+    name match (inference) and below an ASX substantial-holder notice or an ABR record (identity).
+    docs/CORPORATE_GROUPS.md requires a filing per row before group membership is asserted, and
+    this does NOT meet that bar. It tells you which filings to pull, which is the right job for it.
+
+    `otherDescription` is the sanity check on every link: a counterparty whose one-line description
+    does not sound like a company in this group means the chain has wandered, and everything beyond
+    that step is about something else.
+
+    NO CURRENCY GUARANTEE. A statement here may predate an acquisition, a wind-up or a restructure
+    by years — the CEO Wikidata returns for one large donor left in 2019. Every link is "stated",
+    never "current".
+  properties:
+    relKey:
+      metadata: { identity: "true" }
+    wd: "The donor entity this link hangs off — the join key."
+    relation: "One of: parent, owner, subsidiary, owns."
+    other: "The counterparty entity IRI — walk it to continue the chain."
+    otherLabel: "The counterparty's English label."
+    otherDescription: "One line on the counterparty — read it before believing the link."
+  virtualJoins:
+    - anchorLabel: DonorWikidata
+      relationship: HAS_GROUP_LINK
+      keyField: wd
+      recordKeyField: wd
+      producer: wikidataRelationsByEntity
+      maxAnchors: 25
+      description: >-
+        Stated ownership around a donor:
+        `MATCH (e)-[:HAS_WIKIDATA]->(w:DonorWikidata)-[:HAS_GROUP_LINK]->(g:DonorGroupLink)`.

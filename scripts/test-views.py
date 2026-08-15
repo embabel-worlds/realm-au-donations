@@ -75,6 +75,9 @@ CASES = [
     ("SameDayGiving", {"entityName": "Minerals Council of Australia", "limit": 5}),
     # Identity only. Asserts nothing about ownership — see docs/CORPORATE_GROUPS.md.
     ("DonorIdentity", {"entityName": "National Australia Bank Ltd"}),
+    # Cross-realm (realm-wikidata). Structured assertion, not evidence — see
+    # docs/CORPORATE_GROUPS.md. Westpac is used because it reliably resolves; most donors do not.
+    ("DonorGroup", {"entityName": "Westpac Banking Corporation", "limit": 6}),
     # LLM-composed. Gated by prose_failures() below, not just by returning a row: the risk here is
     # a fluent paragraph that interprets, and only an assertion about the WORDS can catch that.
     ("FamilyBriefing", {"familyName": "Liberal Party of Australia", "sinceFy": "2024-25", "limit": 8}),

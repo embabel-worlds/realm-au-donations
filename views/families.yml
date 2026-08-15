@@ -186,3 +186,53 @@
            i.combined_gifts      AS combinedGifts,
            i.this_spelling_total AS thisSpellingTotal,
            i.identity_key        AS identityKey
+
+- name: DonorGroup
+  description: >-
+    A donor resolved to its Wikidata entity, with the ownership relationships STATED there —
+    parent, owner, subsidiaries. Use it when the question is "is this donor part of something
+    bigger", and read every row as a lead to check rather than a finding.
+
+    WHY IT MATTERS FOR THIS REGISTER: subsidiaries lodge their OWN returns. Westpac resolves to
+    five of them (St.George, BankSA, Bank of Melbourne, RAMS, Westpac New Zealand), and any of
+    those appearing as a separate donor is the same corporate group giving — which no reading of
+    the register shows. It is the donor-side twin of the party-branch problem, and unlike the party
+    side it cannot be curated by hand.
+
+    THE TIER, STATED ON EVERY ROW BY IMPLICATION: this is a structured assertion from an open
+    knowledge base. It outranks a scored name match and it does NOT meet the standard in
+    docs/CORPORATE_GROUPS.md, which requires a filing per row before group membership is asserted.
+    Its job is to tell you which filings to pull. `abn` is the most valuable thing it returns —
+    the key that ABR, ATO corporate tax transparency, ACNC and modern slavery statements all
+    accept, and which the register itself carries for only a handful of donors.
+
+    NOTHING HERE IS CURRENT BY GUARANTEE. Wikidata statements may predate an acquisition, a wind-up
+    or a restructure by years; the CEO it returns for one large donor left in 2019. Read
+    `whatItIs` against the entity you meant before believing any link, and read every link as
+    "stated", never "current".
+
+    EXPECT NOTHING FOR MANY DONORS. Private holding vehicles have no Wikidata entity under any
+    name — it resolved none of one major party's top eight donors for 2024-25. That is a fact about
+    the register's lodged legal names, not a failure of this view. See issue #1.
+  outputLabel: DonorGroupRow
+  params:
+    entityName:
+      type: string
+      description: "Exact disclosure name as lodged, e.g. 'Westpac Banking Corporation'."
+    limit:
+      type: int
+      default: 20
+      description: "Maximum relationship rows."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]->(e:DonationEntity)
+    MATCH (e)-[:HAS_WIKIDATA]->(w:DonorWikidata)
+    OPTIONAL MATCH (w)-[:HAS_GROUP_LINK]->(g:DonorGroupLink)
+    RETURN e.name           AS lodgedAs,
+           w.wdLabel        AS knownAs,
+           w.wdDescription  AS resolvedTo,
+           w.abn            AS abn,
+           w.lei            AS lei,
+           g.relation       AS relation,
+           g.otherLabel     AS counterparty,
+           g.otherDescription AS whatItIs
+    LIMIT $limit
