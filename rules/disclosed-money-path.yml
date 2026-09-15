@@ -1,0 +1,46 @@
+# DERIVE rule sets over the DISCLOSED money graph.
+#
+# WHAT THESE CONCLUDE OVER, AND WHAT THEY REFUSE TO
+#
+# Every rule below reads ONLY lodged return lines: a donation, a receipt, the FK columns
+# naming the two entities on each end, the financial year and the amount. Those are
+# disclosures made under legal obligation, and a conclusion drawn from them is a statement
+# about the register, not about anybody's intent.
+#
+# These rules DO NOT and MUST NOT conclude corporate-group membership, common control, or
+# any relationship between entities that the returns themselves do not record.
+# docs/CORPORATE_GROUPS.md sets this realm's standard — "if a filing does not say it, the
+# row does not exist" — and the Wikidata links this realm also carries are explicitly
+# documented as BELOW that bar: useful for deciding which filings to pull, never for
+# asserting a group. A fixpoint would propagate such a claim silently into every rollup
+# downstream, which is precisely the failure that note was written to prevent.
+#
+# The reason DERIVE fits this realm at all is the firing chain. Every conclusion carries the
+# rules and rounds that produced it, so "why is this entity flagged" resolves to the list of
+# lodged lines that made it true. That is the evidence-per-row discipline the realm already
+# demands of a human, computed.
+#
+# ANCHORING. DonationEntity, Donation and Receipt are producer-backed: they exist in a query
+# only once something bound them. These rules therefore conclude over what the QUERY
+# materialised — anchor on a party family or a named donor first, as views/money-paths.yml
+# does. A query that binds nothing derives nothing, honestly.
+
+name: au-donations/disclosed-conduit
+derives: DisclosedConduit
+description: >-
+  An entity that, within one financial year, BOTH received a disclosed payment and made one.
+  A statement about the shape of its lodged returns and nothing else: money arrived and money
+  left in the same year. Ordinary for a party branch, an industry association or a trustee,
+  and unremarkable on its own — it is a description of a role in the disclosure graph, never
+  an allegation about it. `conduitYear` is the financial year in which both legs appear.
+properties:
+  conduitYear:
+    type: string
+    description: "The financial year in which this entity both received and made a disclosed payment, as published (e.g. 2024-25)."
+rules:
+  - derive: "(e:DisclosedConduit {conduitYear: fy})"
+    from: |
+      MATCH (e:DonationEntity)-[:RECEIVED_DONATION]->(inbound:Donation)
+      MATCH (e)-[:MADE_DONATION]->(outbound:Donation)
+      WHERE inbound.financial_year = outbound.financial_year
+      WITH e, inbound.financial_year AS fy

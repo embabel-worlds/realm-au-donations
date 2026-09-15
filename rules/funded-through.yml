@@ -1,0 +1,61 @@
+# A DERIVED EDGE over the disclosed money graph (requires a host with embabel/me#1213).
+#
+# The register answers "who gave to whom" one line at a time. It does not answer "did this
+# donor's money reach that recipient THROUGH somebody else", even when every hop of the path
+# is itself a lodged line — because no single return records a chain. This rule set concludes
+# the chain, and concludes it as a RELATIONSHIP, so the answer is traversable rather than a
+# number in a report.
+#
+# THE CLAIM, STATED EXACTLY. `(a)-[:FUNDED_THROUGH]->(b)` says: there is a sequence of
+# DISCLOSED payments beginning at a and ending at b, every hop of which appears in a lodged
+# return for the SAME financial year. It does NOT say a intended to fund b, that the same
+# dollars moved, that the intermediaries were chosen for that purpose, or that anybody
+# concealed anything. Money is fungible and a chain of disclosures is not a trace of funds.
+# A reader who needs that distinction made in the output should say so in the view's prose,
+# as views/money-paths.yml does.
+#
+# `hops` is the shortest number of disclosed payments along the chain, so 2 is "one
+# intermediary". Direct gifts are NOT derived here: they are already a line in the register
+# and need no rule. Chains are capped by `maxPairs` rather than by a hop constant — the
+# fixpoint closes whatever the returns support, and refuses loudly if the pair count says
+# the query anchored too widely.
+
+name: au-donations/funded-through
+derives: FUNDED_THROUGH
+description: >-
+  A chain of DISCLOSED payments from one entity to another within a single financial year,
+  where at least one other entity sits between them. Each hop is a lodged return line; the
+  edge asserts the sequence exists, never that funds were traced or that anybody intended
+  the destination. `hops` counts the payments in the shortest such chain — 2 means one
+  intermediary.
+properties:
+  hops:
+    type: int
+    description: "Payments in the shortest disclosed chain between these two entities. 2 is one intermediary; direct gifts are register lines, not derivations."
+  financialYear:
+    type: string
+    description: "The financial year every hop of the chain was disclosed in, as published."
+# A realm-scale register is far smaller than the default, and a rule that concludes pairs
+# should say what it expects: a query anchored on one party family across one year closes in
+# the low thousands. Tripping this means the anchor was too wide, not that the estate is dense.
+maxPairs: 20000
+rules:
+  # Two disclosed hops through an intermediary. The endpoints must differ, so a payment that
+  # returns to its origin in the same year is not laundered into a self-edge.
+  - derive: "(a)-[:FUNDED_THROUGH {hops: 2, financialYear: fy}]->(c)"
+    from: |
+      MATCH (a:DonationEntity)-[:MADE_DONATION]->(first:Donation)-[:TO_ENTITY]->(b:DonationEntity)
+      MATCH (b)-[:MADE_DONATION]->(second:Donation)-[:TO_ENTITY]->(c:DonationEntity)
+      WHERE first.financial_year = second.financial_year
+        AND a.id <> b.id AND b.id <> c.id AND a.id <> c.id
+      WITH a, c, first.financial_year AS fy
+  # Extension: a chain already concluded, followed by one more disclosed hop in the same year.
+  # `hops` is 1 + the longest chain reaching the intermediary, which is monotone as membership
+  # grows — the fragment requires that, and min() here would be refused at install.
+  - derive: "(a)-[:FUNDED_THROUGH {hops: h, financialYear: fy}]->(c)"
+    from: |
+      MATCH (a:DonationEntity)-[r:FUNDED_THROUGH]->(b:DonationEntity)
+      MATCH (b)-[:MADE_DONATION]->(next:Donation)-[:TO_ENTITY]->(c:DonationEntity)
+      WHERE next.financial_year = r.financialYear
+        AND a.id <> c.id AND b.id <> c.id
+      WITH a, c, r.financialYear AS fy, max(r.hops + 1) AS h

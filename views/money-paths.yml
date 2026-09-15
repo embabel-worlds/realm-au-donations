@@ -1,0 +1,72 @@
+# Views over the DISCLOSED money graph — the chain questions the register cannot answer in
+# one line, answered from lodged lines only.
+#
+# Both views here depend on rules/ (embabel/me#1213 for the edge one). A host without the
+# rules layer loads them and returns zero rows, which is the honest failure: the label simply
+# does not exist, and nothing pretends otherwise.
+#
+# ANCHORING IS THE COST MODEL. DonationEntity is producer-backed, so these views bind a named
+# starting point first and the rules then conclude over what that binding materialised. The
+# hops are local SQL lookups against the register's own tables, so depth is cheap here in a
+# way it is not in a realm that pays an API per hop — but a query anchored on nothing still
+# derives nothing.
+
+- name: DisclosedConduits
+  description: >-
+    Entities whose lodged returns show money arriving AND leaving within the same financial
+    year, reachable from a named starting entity. This is a description of a role in the
+    disclosure graph and not a finding: a party branch, a trustee, an industry association
+    and a peak body all look like this by design, and so does any organisation that receives
+    subscriptions and makes donations. Read it as "these are the points where a chain could
+    continue", which is what it is.
+
+    The figures are DISCLOSURES, exact as lodged. The presence of both legs is arithmetic on
+    those lines. Nothing here asserts that the money arriving is the money leaving — see
+    FundedThrough for why that distinction is load-bearing.
+  params:
+    entity:
+      type: string
+      default: "Australian Labor Party"
+      description: "Exact lodged entity name to anchor on — the register's spelling, not a trading name."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entity})-[:HAS_ENTITY]->(seed:DonationEntity)
+    MATCH (seed)-[:MADE_DONATION]->(:Donation)-[:TO_ENTITY]->(e:DonationEntity)
+    MATCH (e:DisclosedConduit)
+    RETURN DISTINCT e.name AS entity,
+           e.abn AS abn,
+           e.conduitYear AS financialYear
+    ORDER BY entity
+
+- name: FundedThrough
+  description: >-
+    Where a donor's money reached a recipient through at least one other entity, with every
+    hop a lodged return line in the same financial year. The register records each payment
+    separately and never records the sequence; this view is the sequence.
+
+    WHAT THIS DOES NOT SAY, and the view says it in its own output. It does not say the donor
+    intended to fund the final recipient, that the same dollars moved, that the intermediaries
+    were chosen for that purpose, or that anything was concealed. Money is fungible and a
+    chain of disclosures is not a trace of funds. `hops` is the number of disclosed payments
+    in the shortest such chain: 2 means one intermediary.
+
+    Direct gifts are absent by design — they are already a line in the register and need no
+    derivation. If a donor appears here it is because a path of length two or more exists.
+  params:
+    entity:
+      type: string
+      default: "Australian Labor Party"
+      description: "Exact lodged entity name to anchor on."
+    minHops:
+      type: int
+      default: 2
+      description: "Shortest chain length to report. 2 is one intermediary; raise it to see only longer chains."
+  cypher: |
+    MATCH (q:DonationQuery {name: $entity})-[:HAS_ENTITY]->(seed:DonationEntity)
+    MATCH (seed)-[:MADE_DONATION]->(:Donation)-[:TO_ENTITY]->(:DonationEntity)
+    MATCH (from:DonationEntity)-[f:FUNDED_THROUGH]->(to:DonationEntity)
+    WHERE f.hops >= $minHops
+    RETURN from.name AS fromEntity,
+           to.name AS toEntity,
+           f.hops AS disclosedPayments,
+           f.financialYear AS financialYear
+    ORDER BY disclosedPayments DESC, fromEntity, toEntity

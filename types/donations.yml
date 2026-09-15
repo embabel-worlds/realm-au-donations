@@ -31,6 +31,40 @@
     abn: "Australian Business Number, where a return supplied it."
     acn: "Australian Company Number, where a return supplied it."
   virtualJoins:
+    # THE RETURN LEG. Every transaction type below carries FK columns naming its two
+    # counterparties, but until these joins existed nothing could walk FROM a transaction
+    # TO the entity on its other end — so a chain of disclosed payments was visible only
+    # one hop at a time, and "where did this money go next" had no query. `entitiesById`
+    # is a local SQL lookup on the same table the register was loaded into, cached a day,
+    # so the hop costs nothing external.
+    #
+    # These are LODGED FACTS and nothing more: a line says this entity paid that entity.
+    # Whether the two are related, or under common control, is a different claim with a
+    # different evidence bar — see docs/CORPORATE_GROUPS.md, which this realm obeys.
+    - anchorLabel: Donation
+      relationship: TO_ENTITY
+      keyField: recipient_id
+      recordKeyField: id
+      producer: entitiesById
+      description: "The entity a disclosed donation was made TO: `(d:Donation)-[:TO_ENTITY]->(e:DonationEntity)`."
+    - anchorLabel: Donation
+      relationship: FROM_ENTITY
+      keyField: donor_id
+      recordKeyField: id
+      producer: entitiesById
+      description: "The entity a disclosed donation came FROM: `(d:Donation)-[:FROM_ENTITY]->(e:DonationEntity)`."
+    - anchorLabel: Receipt
+      relationship: TO_ENTITY
+      keyField: recipient_id
+      recordKeyField: id
+      producer: entitiesById
+      description: "The entity a disclosed receipt was received BY: `(r:Receipt)-[:TO_ENTITY]->(e:DonationEntity)`."
+    - anchorLabel: Receipt
+      relationship: FROM_ENTITY
+      keyField: payer_id
+      recordKeyField: id
+      producer: entitiesById
+      description: "The entity a disclosed receipt was paid BY: `(r:Receipt)-[:FROM_ENTITY]->(e:DonationEntity)`."
     - anchorLabel: DonationQuery
       relationship: HAS_ENTITY
       keyField: name
