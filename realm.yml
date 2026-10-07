@@ -16,6 +16,7 @@ version: "0.1.0"
 author: "Rod Johnson"
 url: https://github.com/johnsonr/realm-au-donations
 icon: icon.svg
+category: government
 tags:
   - australia
   - politics
