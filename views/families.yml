@@ -538,7 +538,7 @@
            // per donor is more than one composition call can hold, and the fold then summarises
            // its own partials — which silently drops whole donors from the brief. 400 characters
            // carries the sentence that identifies the donor, which is all this needs.
-           text: left(replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', ''), 700)
+           text: left(replace(replace(coalesce(h.content, h.snippet, ''), '<strong>', ''), '</strong>', ''), 700)
          } END)[0..3] AS srcs
     WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, b.total AS total, srcs,
          b.donor_name + ' disclosed $' + toString(b.total) + ' to ' + $familyName + ' in ' +
@@ -629,7 +629,7 @@
            END AS sourceKind,
            h.title      AS title,
            h.url        AS url,
-           replace(replace(coalesce(h.excerpt, h.snippet, ''), '<strong>', ''), '</strong>', '') AS text
+           replace(replace(coalesce(h.content, h.snippet, ''), '<strong>', ''), '</strong>', '') AS text
     ORDER BY disclosedTotal DESC, donorAsLodged, url
 
 - name: PartyFundingScale
