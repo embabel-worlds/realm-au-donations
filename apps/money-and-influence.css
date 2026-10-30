@@ -190,3 +190,11 @@ footer {
 footer code { font-family: var(--mono); font-size: .9em; }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* How it works: hidden until the footer link targets it, so the link survives a reload. */
+#how-it-works { display: none; }
+#how-it-works:target { display: block; }
+#how-it-works h3 { margin: 1.4rem 0 0.4rem; }
+#how-it-works details { border: 1px solid var(--rule); border-radius: 6px; padding: 0.4rem 0.7rem; margin: 0.4rem 0; }
+#how-it-works summary { cursor: pointer; }
+#how-it-works pre { font-family: var(--mono); white-space: pre-wrap; overflow-x: auto; font-size: 0.8rem; margin: 0.5rem 0 0; }

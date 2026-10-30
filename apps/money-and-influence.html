@@ -76,6 +76,210 @@
     <div id="drill-body"></div>
   </section>
 
+  <section id="how-it-works" class="block" aria-labelledby="hiw-title">
+    <h2 id="hiw-title">How it works</h2>
+
+    <h3>The data</h3>
+    <p>The figures come from the AEC Transparency Register's annual disclosure returns, held in this realm's own
+      provisioned PostgreSQL store (datasource <code>au_donations</code>, loaded by <code>scripts/load-aec.py</code>).
+      The appliance reads it read-only through governed <code>sql</code> producers that generate their own SELECTs:
+      <code>familyBackersByFamily</code> (table <code>family_backers</code>, behind <code>FamilyBacker</code>),
+      <code>sameDayByDonor</code> (<code>same_day_multi_party</code>, behind <code>SameDayGiving</code>) and
+      <code>donorIdentityByName</code> (<code>donor_identity</code>, behind <code>DonorIdentity</code>). Political
+      families are this realm's own mapping (<code>sql/party_families.sql</code>), not the AEC's; the family list in
+      the selector is <code>families.json</code>, shipped beside this page.</p>
+    <p>How fresh: the AEC releases annual returns on the first business day of February, and the store holds whatever
+      the loader last loaded — re-running the loader is what refreshes it. Each producer caches its reads for a day.</p>
+    <p>“Who these donors are” and the drill-in's sources are the only parts that leave the store. They read
+      <code>DonorTrailHit</code> through <code>webForPhraseRead</code>, which calls the <code>webSearch</code> operation
+      (Brave web search, declared by the companion realm-gov-au) for the donor's name and then reads the top three
+      pages, keeping bounded excerpts around the name. Those results are cached for six hours. The paragraph in the
+      dossier is written by a model, once per donor, from the register line and those excerpts only.</p>
+
+    <h3>The questions</h3>
+    <p>The page calls seven views of this realm, each by name through <code>POST /api/v1/views/{name}/invoke</code>.
+      This is the Cypher each one runs.</p>
+  <details><summary><b>PartyFundingScale</b> — The size of it: how many donors disclosed to the family since the chosen year, the total, the number of gifts, and how many of the family's legal entities the widest-spread donor reached. <i>Parameters: familyName, sinceFy.</i></summary><pre>MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]-&gt;(b:FamilyBacker)
+WHERE b.financial_year &gt;= $sinceFy
+RETURN count(DISTINCT b.donor_name) AS donors,
+       sum(b.total)                 AS disclosedTotal,
+       sum(b.gifts)                 AS gifts,
+       max(b.branches)              AS mostEntitiesOneDonorReached</pre></details>
+  <details><summary><b>FamilyBackers</b> — Who funds it: one row per donor per financial year, every lodging branch of the family summed into one figure, largest first. <i>Parameters: familyName, sinceFy, limit (the “Donors to show” control).</i></summary><pre>MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]-&gt;(b:FamilyBacker)
+WHERE b.financial_year &gt;= $sinceFy
+RETURN b.donor_name      AS donor,
+       b.financial_year  AS financialYear,
+       b.total           AS total,
+       b.gifts           AS gifts,
+       b.branches        AS branches,
+       b.branches_lodged AS branchesLodged,
+       b.tiers           AS tiers
+ORDER BY b.total DESC
+LIMIT $limit</pre></details>
+  <details><summary><b>BranchSpreading</b> — Money that reached several arms: donors whose gifts reached at least three separate legal entities of the family, most entities first. <i>Parameters: familyName, sinceFy, minBranches = 3, limit = 8.</i></summary><pre>MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]-&gt;(b:FamilyBacker)
+WHERE b.financial_year &gt;= $sinceFy AND b.branches &gt;= $minBranches
+RETURN b.donor_name      AS donor,
+       b.financial_year  AS financialYear,
+       b.branches        AS branches,
+       b.total           AS total,
+       b.branches_lodged AS branchesLodged
+ORDER BY b.branches DESC, b.total DESC
+LIMIT $limit</pre></details>
+  <details><summary><b>PartyFundingDossier</b> — Who these donors are: for the largest donors (at most five), web pages that mention the donor are searched and read, ranked by kind of source, and a model writes one short paragraph per donor from those pages and the register line only. <i>Parameters: familyName, sinceFy, limit = the smaller of “Donors to show” and 5.</i></summary><pre>MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]-&gt;(b:FamilyBacker)
+WHERE b.financial_year &gt;= $sinceFy
+WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+// A PERSON is lodged surname-first (&#x27;Wall, Pamela&#x27;) — a string no article, filing or profile
+// carries — so a search under the lodged form finds nothing and the largest donor in a report
+// comes back blank. Inverted for the SEARCH only; every printed name stays as lodged.
+WITH b,
+     CASE WHEN b.donor_name CONTAINS &#x27;, &#x27; AND NOT b.donor_name =~ &#x27;(?i).*(pty|ltd|limited|council|union|association|group|holdings|trust|inc).*&#x27;
+       THEN trim(split(b.donor_name, &#x27;,&#x27;)[1]) + &#x27; &#x27; + trim(split(b.donor_name, &#x27;,&#x27;)[0])
+       ELSE b.donor_name
+     END AS searchName
+OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})-[:HAS_READ_RESULT]-&gt;(h:DonorTrailHit)
+// Directories, aggregators and social pages restate an address and a like-count. They identify
+// nobody, and every one of them displaces a source that does.
+WHERE h.url IS NULL OR NOT h.url =~ &#x27;(?i).*(linkedin|facebook|twitter|instagram|dnb|creditorwatch|companiesdb|opengovau|australialei|bloomberg|aus61business|ib\.com\.au|rightsindevelopment|claytonutz|donation\.watch).*&#x27;
+// ONE ROW PER DONOR, ITS FIRST THREE SOURCES, each labelled with WHAT KIND it is. A row per
+// SOURCE let one well-covered donor consume the whole brief while three others went unmentioned:
+// coverage cannot be requested in a prompt when the input itself is lopsided. Grouped here,
+// every donor is exactly one item, so a brief that drops one is visibly short.
+//
+// The kind is folded into the collected map rather than projected in its own WITH, and nothing
+// orders on a fetched property — after a paid per-anchor hop both defeat the planner, and the
+// failure surfaces as an unrelated &quot;unknown function&quot; rather than as a refusal.
+// EVIDENCE GRADE DECIDES WHAT A READER SEES FIRST. A substantial-holder notice lodged under law
+// and a company profile page arrive from a search engine in popularity order, which is not the
+// order that helps anyone weigh a claim about who funds a political party. Ranked here, so the
+// three sources kept per donor are the three strongest available rather than the three most
+// popular. (This was believed impossible for several days: ordering on a fetched property
+// appeared to be refused by the planner. It was not — see embabel/me#871.)
+WITH b, searchName, h,
+     CASE
+       WHEN h.url =~ &#x27;(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*&#x27; THEN 1
+       WHEN h.url =~ &#x27;(?i).*\\.gov\\.au.*&#x27;                     THEN 2
+       WHEN h.url =~ &#x27;(?i).*wikipedia\\.org.*&#x27;                 THEN 4
+       ELSE 3
+     END AS grade
+ORDER BY b.total DESC, b.donor_name, grade
+WITH b, searchName,
+     collect(CASE WHEN h.url IS NULL THEN null ELSE {
+       kind: CASE
+         WHEN h.url =~ &#x27;(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*&#x27; THEN &#x27;a disclosure lodged under law&#x27;
+         WHEN h.url =~ &#x27;(?i).*\\.gov\\.au.*&#x27;                     THEN &#x27;a government register&#x27;
+         WHEN h.url =~ &#x27;(?i).*wikipedia\\.org.*&#x27;                 THEN &#x27;an encyclopaedia entry&#x27;
+         ELSE &#x27;reporting by a named publication&#x27;
+       END,
+       title: h.title,
+       url: h.url,
+       // BOUNDED QUOTE. The producer reads a 3,000-character window per page; three of those
+       // per donor is more than one composition call can hold, and the fold then summarises
+       // its own partials — which silently drops whole donors from the brief. 400 characters
+       // carries the sentence that identifies the donor, which is all this needs.
+       text: left(replace(replace(coalesce(h.content, h.snippet, &#x27;&#x27;), &#x27;&lt;strong&gt;&#x27;, &#x27;&#x27;), &#x27;&lt;/strong&gt;&#x27;, &#x27;&#x27;), 700)
+     } END)[0..3] AS srcs
+WITH b.donor_name AS donorAsLodged, searchName AS searchedAs, b.total AS total, srcs,
+     b.donor_name + &#x27; disclosed $&#x27; + toString(b.total) + &#x27; to &#x27; + $familyName + &#x27; in &#x27; +
+     b.financial_year + &#x27;, in &#x27; + toString(b.gifts) + &#x27; gifts&#x27; +
+     CASE WHEN b.branches &gt; 1
+       THEN &#x27; across &#x27; + toString(b.branches) + &#x27; separate party entities (&#x27; + b.branches_lodged + &#x27;)&#x27;
+       ELSE &#x27;&#x27;
+     END + &#x27;.&#x27; +
+     CASE WHEN size(srcs) = 0 THEN &#x27; No published source was found.&#x27;
+       ELSE reduce(acc = &#x27;&#x27;, s IN srcs |
+         acc + &#x27; SOURCE, &#x27; + s.kind + &#x27; — &#x27; + s.title + &#x27; &lt;&#x27; + s.url + &#x27;&gt;: &#x27; + s.text)
+     END AS line
+// ONE ROW PER DONOR, AND ONE COMPOSITION PER DONOR. Neo4j groups an aggregation by the other
+// returned keys, so returning the donor beside `render(...)` finalises the reduction once per
+// donor rather than once per report.
+//
+// That is not a performance choice, it is a correctness one. Composing eight donors in a single
+// pass drifts: four consecutive runs each introduced a word no source used — &quot;wholly&quot; for
+// &quot;100%&quot;, &quot;violations&quot; for &quot;infringement notice&quot;, and once &quot;ties&quot; between a donor and the
+// party, which is the unsupported relation this realm exists to refuse. Five donors passed
+// first time. The variable is how much a model must hold at once, so this holds one donor.
+//
+// Coverage also stops being something to check: N donors in, N rows out, and a missing donor is
+// a missing ROW that any caller can count — not a silently shorter paragraph.
+RETURN donorAsLodged AS donor,
+       searchedAs    AS searchedAs,
+       total         AS disclosedTotal,
+       render(line,
+         &#x27;Report this donor: the register facts, then at most two sentences on who it is according to its SOURCE lines, naming the source and what kind it is. Prefer what identifies the donor — who owns or benefits from it — over anything else a source discusses. Never assert a connection yourself; a source says it, in its own words. Do not write that anything is associated with, linked to, related to or behind anything else unless a source says exactly that. Where there is no source, say so in a clause.&#x27;
+       ) AS prose,
+       head(collect(srcs)) AS sources,
+  &#x27;These are amounts disclosed under law. They say nothing about what any donor sought or received. Gifts below the disclosure threshold do not appear. Donor and recipient returns are separate disclosures that need not agree. Statements about who a donor is are quoted from the named source, not asserted by this realm — a filing and a news report are different kinds of evidence, and both may be dated. The register asserts only the name on the return.&#x27; AS caveats
+ORDER BY disclosedTotal DESC, donor</pre></details>
+  <details><summary><b>DonorIdentity</b> — Drill-in, spellings: every spelling the donor lodged under (same ABN, or identical after normalising case, punctuation and legal suffix) and the combined total. <i>Parameters: entityName = the donor as lodged.</i></summary><pre>MATCH (q:DonationQuery {name: $entityName})-[:HAS_IDENTITY]-&gt;(i:DonorIdentity)
+RETURN i.canonical_name      AS canonicalName,
+       i.variants            AS variants,
+       i.variant_names       AS variantNames,
+       i.combined_total      AS combinedTotal,
+       i.combined_gifts      AS combinedGifts,
+       i.this_spelling_total AS thisSpellingTotal,
+       i.identity_key        AS identityKey</pre></details>
+  <details><summary><b>SameDayGiving</b> — Drill-in, same-day giving: dates on which this donor paid more than one political family, up to six. <i>Parameters: entityName = the donor as lodged, limit = 6.</i></summary><pre>MATCH (q:DonationQuery {name: $entityName})-[:HAS_ENTITY]-&gt;(e:DonationEntity)
+MATCH (e)-[:PAID_MANY_ON_A_DAY]-&gt;(s:SameDayGiving)
+RETURN toString(s.made_on)  AS madeOn,
+       s.financial_year     AS financialYear,
+       s.families_paid      AS familiesPaid,
+       s.paid_that_day      AS paidThatDay,
+       s.which_families     AS whichFamilies
+ORDER BY s.families_paid DESC, s.paid_that_day DESC
+LIMIT $limit</pre></details>
+  <details><summary><b>PartyFundingSources</b> — Drill-in, sources: the pages the dossier read, with the text actually read from each; the page keeps only the rows for the selected donor. <i>Parameters: familyName, sinceFy, limit.</i></summary><pre>MATCH (f:PartyFamilyQuery {name: $familyName})-[:HAS_BACKER]-&gt;(b:FamilyBacker)
+WHERE b.financial_year &gt;= $sinceFy
+WITH b ORDER BY b.total DESC, b.donor_name, b.financial_year LIMIT $limit
+WITH b,
+     CASE WHEN b.donor_name CONTAINS &#x27;, &#x27; AND NOT b.donor_name =~ &#x27;(?i).*(pty|ltd|limited|council|union|association|group|holdings|trust|inc).*&#x27;
+       THEN trim(split(b.donor_name, &#x27;,&#x27;)[1]) + &#x27; &#x27; + trim(split(b.donor_name, &#x27;,&#x27;)[0])
+       ELSE b.donor_name
+     END AS searchName
+OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})-[:HAS_READ_RESULT]-&gt;(h:DonorTrailHit)
+WHERE h.url IS NULL OR NOT h.url =~ &#x27;(?i).*(linkedin|facebook|twitter|instagram|dnb|creditorwatch|companiesdb|opengovau|australialei|bloomberg|aus61business|ib\.com\.au|rightsindevelopment|claytonutz|donation\.watch).*&#x27;
+RETURN b.donor_name      AS donorAsLodged,
+       searchName        AS searchedAs,
+       b.total           AS disclosedTotal,
+       b.financial_year  AS financialYear,
+       b.gifts           AS gifts,
+       b.branches        AS branches,
+       b.branches_lodged AS branchesLodged,
+       CASE
+         WHEN h.url =~ &#x27;(?i).*(asx|asic|abr)\\.(com|gov)\\.au.*&#x27; THEN &#x27;a disclosure lodged under law&#x27;
+         WHEN h.url =~ &#x27;(?i).*\\.gov\\.au.*&#x27;                     THEN &#x27;a government register&#x27;
+         WHEN h.url =~ &#x27;(?i).*wikipedia\\.org.*&#x27;                 THEN &#x27;an encyclopaedia entry&#x27;
+         WHEN h.url IS NULL                                     THEN null
+         ELSE &#x27;reporting by a named publication&#x27;
+       END AS sourceKind,
+       h.title      AS title,
+       h.url        AS url,
+       replace(replace(coalesce(h.content, h.snippet, &#x27;&#x27;), &#x27;&lt;strong&gt;&#x27;, &#x27;&#x27;), &#x27;&lt;/strong&gt;&#x27;, &#x27;&#x27;) AS text
+ORDER BY disclosedTotal DESC, donorAsLodged, url</pre></details>
+
+    <h3>When it looks wrong</h3>
+    <p>“No disclosures for … since …” means the store holds no disclosed gift to that family in the window. It is an
+      answer, not an outage: try an earlier financial year. Gifts below the disclosure threshold never appear.
+      “No donor reached three or more separate entities” is likewise an answer for that family and window.</p>
+    <p>A box headed <b>“The data could not be fully fetched”</b> means a producer returned rows with a warning — most often
+      the web search or a page read in the dossier. The rows shown are real, but incomplete; it is never shown as an
+      empty answer. <b>“Could not read this”</b> means the view call itself failed, timed out after three minutes, or
+      your session lapsed; reload, or sign in again.</p>
+    <p>In the drill-in, a missing spellings or same-day block means that view returned no rows for this donor, and
+      “nothing further was resolved” means none of the three did. A donor with no sources in the dossier had no page
+      found under its name (people are searched forename-first, though printed as lodged). The dossier is the slow
+      panel: it searches and reads pages on first use, then serves from cache.</p>
+    <p>Donor names are not merged across spellings in the tables; the drill-in's spellings block shows the combined
+      figure.</p>
+
+    <h3>What made this possible</h3>
+    <p>The page has no backend of its own: it asks the appliance for views by name, and every sum, rollup and ranking is
+      done in the view's Cypher, so the page recomputes nothing. A relational table (<code>family_backers</code>) is
+      read as graph nodes by a declared <code>sql</code> producer — no copy of the database is made. The dossier joins
+      those rows to live web pages in the same query: <code>OPTIONAL MATCH (c:CoverageQuery {phrase: searchName})</code>
+      triggers the search and page reads for exactly the donors the query selected, and <code>render(...)</code>
+      composes one paragraph per donor inside that query, so a missing donor is a missing row.</p>
+  </section>
+
   <footer>
     <p>Every figure is read live from this realm's views —
       <code>PartyFundingScale</code>, <code>FamilyBackers</code>, <code>BranchSpreading</code>,
@@ -85,9 +289,13 @@
       names legal lodgers, and rolling divisions of one party together is a defensible analytical act
       rather than a fact the Commission asserts. Every rollup shows the entities it spans so it can be
       taken apart again. A disclosure is a sourced fact, never a finding.</p>
+    <p><a href="#how-it-works">How it works</a></p>
   </footer>
 
 </div>
 <script src="money-and-influence.js"></script>
+<div id="embabel-badge" style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:6px 0;background:rgba(10,10,15,0.9);border-top:1px solid rgba(99,192,245,0.2);font-size:0.75rem;color:#6b7280;z-index:9999;pointer-events:none;">
+  Created with <a href="https://worlds.embabel.com" target="_blank" rel="noopener noreferrer" style="color:#63c0f5;text-decoration:none;pointer-events:auto;">Embabel Worlds</a>
+</div>
 </body>
 </html>
