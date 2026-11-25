@@ -112,6 +112,58 @@ UNVERIFIED = {
 }
 
 
+# A figure the engine marks short is not the realm's figure, and a battery that counts it reports
+# drift that is the source's. short(d) reads an answer's own error, reason, warnings and outcome and
+# is None when the answer is whole, else the line that stands in for the figure: "REFUSED: <why>"
+# or "PARTIAL <n>: <the engine's reason>". It reads both wires: a query answer (`rows`, `warnings`
+# as strings opening with the engine's code) and a view envelope (`status`, `outcome`, `warnings`
+# as {code, message}).
+# Raw warning codes that mean rows or values may be missing (the engine's incompleteness kinds).
+# Cost notes (FILTERED_IN_GRAPH, AGGREGATE_NOT_PUSHED, EMPTY_NOT_KEPT, PUSHDOWN_VALUE_UNMATCHED),
+# FILTER_STARVED (an honest empty), STALE_COPY, FIELDS_WITHHELD and UNKNOWN_VIA leave every row in place.
+SHORT_CODES = (
+    "PARTIAL_RESULT", "PRODUCER_ERROR", "NEEDS_FILTER", "NEEDS_PRODUCER", "FILTER_REJECTED",
+    "UNPUSHED_FILTER", "AMBIGUOUS_LABEL", "INCOMPLETE_TRAVERSAL", "INCOMPLETE_RANKING",
+    "INCOMPLETE_AGGREGATE", "INCOMPLETE_INPUT", "MATERIALIZATION_FAILED", "REDUCTION_FAILED",
+    "UNPARSEABLE_ANSWER", "TERMS_UNAVAILABLE", "COMPUTE_FAILED", "PROPERTY_NOT_STORED",
+    "FOLLOW_CAPPED", "UNLINKED_CHILDREN", "RESOLUTION_DROPPED", "AGENTIC_DEGRADED",
+    "SOURCE_UNANSWERED",
+)
+# The typed `reason` a query result carries when it is not a clean answer and not an honest empty.
+SHORT_REASONS = ("UNBOUNDED", "PARTIAL_NOT_MATCHED", "UNPUSHED_FILTER", "DISCONNECTED",
+                 "INTERNAL_ERROR", "WRITE_IN_PROGRESS", "KILLED", "TOO_EXPENSIVE")
+# Public warning codes on a view envelope that mean the same.
+SHORT_PUBLIC = ("PARTIAL", "REDUCTION_FAILED", "COMPUTE_FAILED", "PROPERTY_NOT_STORED",
+                "AGENTIC_DEGRADED", "RATE_LIMITED", "SOURCE_UNAVAILABLE", "SOURCE_REJECTED",
+                "INVALID_FILTER", "UNPUSHED_FILTER", "TOO_BROAD", "FETCH_CAPPED",
+                "INDEX_UNAVAILABLE", "ARGUMENT_REFUSED")
+
+
+def short(d, figure=None):
+    tag = "PARTIAL" if figure is None else "PARTIAL %s" % (figure,)
+    if not isinstance(d, dict):
+        return "REFUSED: not an engine answer: " + str(d)[:160]
+    if "outcome" in d or "status" in d:  # a view envelope
+        err = d.get("error") or {}
+        if d.get("status") != "SUCCEEDED":
+            return "REFUSED: %s %s" % (d.get("status"), (err.get("code", "") + " " + err.get("message", "")).strip()[:160] if isinstance(err, dict) else str(err)[:160])
+        ws = [w for w in d.get("warnings") or [] if isinstance(w, dict) and w.get("code") in SHORT_PUBLIC]
+        if d.get("outcome") not in ("OK", "EMPTY") or ws:
+            why = ws[0]["code"] + ": " + ws[0].get("message", "") if ws else "outcome " + str(d.get("outcome"))
+            return "%s: %s" % (tag, why[:200])
+        return None
+    if d.get("error"):
+        return "REFUSED: " + str(d["error"])[:160]
+    if d.get("run"):
+        return "%s: the run had not finished (%s)" % (tag, d["run"])
+    ws = [w for w in d.get("warnings") or [] if isinstance(w, str) and w.split(":", 1)[0].strip() in SHORT_CODES]
+    if ws:
+        return "%s: %s" % (tag, ws[0][:200])
+    if d.get("reason") in SHORT_REASONS:
+        return "%s: reason %s" % (tag, d["reason"])
+    return None
+
+
 def post(path, body):
     req = urllib.request.Request(
         f"{BASE}{path}?username={USER}",
@@ -501,6 +553,16 @@ def check_the_gate():
     return bad
 
 
+def whole(res, what, problems):
+    """Rows to ground a composition against, or none and a problem: words held against a short source
+    read as invented when they are only unread."""
+    s = short(res, len(res.get("rows") or []))
+    if s:
+        problems.append(f"{what} are short — grounding unchecked: {s}")
+        return []
+    return res.get("rows", [])
+
+
 def run_case(name, args):
     """Run one view and apply every gate that applies to it. Returns (response, rows, problems)."""
     res = post(f"/views/{name}/run", {"args": args})
@@ -522,7 +584,7 @@ def run_case(name, args):
     # invites the reader to stop checking. PartyFundingSources returns exactly what the composer
     # saw, so every word can be held against it.
     if name == "PartyFundingDossier" and rows:
-        source = post("/views/PartyFundingSources/run", {"args": args}).get("rows", [])
+        source = whole(post("/views/PartyFundingSources/run", {"args": args}), "the dossier's source rows", problems)
         corpus = " ".join(
             " ".join(str(r.get(f) or "") for f in (
                 "donorAsLodged", "searchedAs", "disclosedTotal", "financialYear", "gifts",
@@ -535,7 +597,7 @@ def run_case(name, args):
         elif novel:
             problems.append(f"words in the dossier that appear in no source it was given: {novel}")
     if name == "PartyFundingBriefing" and rows:
-        source = post("/views/PartyFundingReport/run", {"args": args}).get("rows", [])
+        source = whole(post("/views/PartyFundingReport/run", {"args": args}), "the brief's source rows", problems)
         corpus = " ".join([r.get("sentence") or "" for r in source] + [briefing_instruction()])
         novel = unsupported_words(rows[0].get("briefing") or "", corpus)
         if not source:
@@ -565,10 +627,14 @@ def main():
             print(f"    RETRY {name}: the aggregation's refusal sentinel leaked; composing again")
             res, rows, prose = run_case(name, args)
         warn, err = res.get("warnings"), res.get("error")
-        ok = rows and not err and not prose
+        # Rows beside a warning that says some are missing are not the view's answer.
+        cut = short(res, len(rows))
+        ok = rows and not err and not cut and not prose
         failures += 0 if ok else 1
         print(f"{'✓' if ok else '✗'} {name}  args={args}")
         print(f"    rows={res.get('rowCount')} ms={res.get('durationMs')} err={err}")
+        if cut:
+            print(f"    {cut}")
         for problem in prose:
             print(f"    GATE FAILED — {problem}")
         # A 0-row result WITH a warning is a broken realm, not an empty source — always read these.
